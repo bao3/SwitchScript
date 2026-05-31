@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     # 允许在 GitHub 网页上手动点击按钮立即触发构建
 
-# 核心权限：必须显式声明允许工作流写入仓库内容（用于发布 Release）
+# 赋予工作流可以给仓库 Release 写入文件的硬性权限
 permissions:
   contents: write
 
@@ -28,6 +28,9 @@ jobs:
         run: chmod +x ./switchScript.sh
 
       - name: Run Switch Build Script
+        # 【关键修复】：将本地生成的秘钥以环境变量形式喂给内部的 Shell 脚本
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: ./switchScript.sh
 
       - name: Create Zip Archive
@@ -37,27 +40,19 @@ jobs:
           cd ..
 
       - name: Upload to GitHub Release
-        # 使用 softprops/action-gh-release 动作
         uses: softprops/action-gh-release@v2
         with:
-          # 固定的 Tag 名字，每天运行都会覆盖这个 Tag 的内容
           tag_name: latest
-          # Release 的标题，这里加入了动态日期，方便在主页一眼看出更新时间
           name: "Latest Switch SD Pack (${{ github.event.schedule && 'Scheduled' || 'Manual' }})"
-          # 发布页面的正文描述
           body: |
             这是每日自动生成的最新 Nintendo Switch CFW 整合包。
-            包含最新的 Hekate, Atmosphere, Sigpatches, 以及各种常用工具插件。
+            包含最新的 Hekate, Atmosphere, Sigpatches, 常用工具插件及自定义配置文件。
             
-            **构建时间**: ${{ github.event.repository.updated_at }}
-          # 设定为非草稿、非预发布
+            **最近构建时间**: ${{ github.event.repository.updated_at }}
           draft: false
           prerelease: false
-          # 核心参数：当最新版运行时，自动覆盖并替换已经存在的同名 Tag 和 Assets
           make_latest: "true"
-          # 需要上传的资产文件路径
           files: |
             NS_SD_Card.zip
         env:
-          # GitHub Actions 内部自动生成的临时安全凭证，无需手动去 Settings 配置 Secret
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
