@@ -11,16 +11,15 @@ HEKATE_URL="https://github.com/CTCaer/hekate/releases/latest"
 ATMOSPHERE_URL="https://github.com/Atmosphere-NX/Atmosphere/releases/latest"
 SIGPATCHES_URL="https://github.com/impeeza/sys-patch/releases/latest"
 AKIRA_URL="https://github.com/xlanor/akira/releases/latest"
-TESLA_MENU_URL="https://github.com/WerWolv/Tesla-Menu/releases/latest"
-OVLLOADER_URL="https://github.com/WerWolv/nx-ovlloader/releases/latest"
 MISSION_CONTROL_URL="https://github.com/ndeadly/MissionControl/releases/latest"
 DBI_URL="https://github.com/rashevskyv/dbi/releases/latest"
 # SPHAIRA 使用固定直连
 SPHAIRA_URL="https://github.com/ITTotalJustice/sphaira/releases/download/1.0.0/sphaira.zip"
 EDIZON_SE_URL="https://github.com/tomvita/EdiZon-SE/releases/latest"
 AIO_UPDATER_URL="https://github.com/HamletDuFromage/aio-switch-updater/releases/latest"
-# 【新增】：NX-Shell 变量支持
 NX_SHELL_URL="https://github.com/Tproc-labs/NX-Shell-21.0.0/releases/latest"
+# 【新增】：Ultrahand-Overlay 变量定义
+ULTRAHAND_OVERLAY_URL="https://github.com/ppkantorski/Ultrahand-Overlay/releases/latest"
 
 # MigFlash 官网下载页面 URL（不需要可以注释掉）
 MIG_DUMP_PAGE_URL="https://migflash.com/downloads/"
@@ -61,7 +60,6 @@ mkdir -p "$OUTPUT_DIR"
 mkdir -p "$OUTPUT_DIR/switch"
 mkdir -p "$OUTPUT_DIR/switch/DBI"
 mkdir -p "$OUTPUT_DIR/switch/MigDumpTool"
-mkdir -p "$OUTPUT_DIR/switch/.overlays"
 mkdir -p "$OUTPUT_DIR/config/sys-patch"
 mkdir -p "$OUTPUT_DIR/config/ftpsrv"
 mkdir -p "$OUTPUT_DIR/atmosphere"
@@ -78,7 +76,7 @@ download_latest_asset() {
   
   # 如果传入的原本就是个已经包含 releases/download 的直链，直接下载并跳过 API 解析
   if [[ "$repo_url" == *"/releases/download/"* ]]; then
-    echo "=> Detection: Direct download link provided. Skipping GitHub API parsing."
+    echo "=> Notice: Direct download link provided. Skipping GitHub API parsing."
     echo "Downloading from direct link: $repo_url"
     curl -sL "$repo_url" -o "$output_path"
     if [[ $? -eq 0 && -f "$output_path" ]]; then
@@ -104,10 +102,11 @@ download_latest_asset() {
   local api_response=$(curl "${auth_header[@]}" -sL "$api_url")
 
   # 针对特定仓库订制硬性筛选规则（大小写模糊匹配）
-  if [[ "$repo_url" == *"/Tesla-Menu/"* ]]; then
-    download_url=$(echo "$api_response" | jq -r 'try (.assets[] | select(.name | ascii_downcase == "ovlmenu.zip") | .browser_download_url) catch null' | head -n 1)
-  elif [[ "$repo_url" == *"/sphaira/"* ]]; then
+  if [[ "$repo_url" == *"/sphaira/"* ]]; then
     download_url=$(echo "$api_response" | jq -r 'try (.assets[] | select(.name | ascii_downcase == "sphaira.zip") | .browser_download_url) catch null' | head -n 1)
+  elif [[ "$repo_url" == *"/Ultrahand-Overlay/"* ]]; then
+    # 【新增】：精确锁死抓取官方指定的资产文件名 sdout.zip
+    download_url=$(echo "$api_response" | jq -r 'try (.assets[] | select(.name | ascii_downcase == "sdout.zip") | .browser_download_url) catch null' | head -n 1)
   else
     # 通用后缀筛选逻辑（如 .zip, .nro, .ovl）
     download_url=$(echo "$api_response" | jq -r --arg ext "$extension" 'try (.assets[] | select(.name | ascii_downcase | endswith($ext | ascii_downcase)) | .browser_download_url) catch null' | head -n 1)
@@ -142,18 +141,16 @@ download_latest_asset() {
 [[ -n "$HEKATE_URL" ]] && download_latest_asset "$HEKATE_URL" "hekate.zip"
 [[ -n "$ATMOSPHERE_URL" ]] && download_latest_asset "$ATMOSPHERE_URL" "atmosphere.zip"
 [[ -n "$SIGPATCHES_URL" ]] && download_latest_asset "$SIGPATCHES_URL" "sigpatches.zip"
-[[ -n "$OVLLOADER_URL" ]] && download_latest_asset "$OVLLOADER_URL" "nx-ovlloader.zip"
 [[ -n "$MISSION_CONTROL_URL" ]] && download_latest_asset "$MISSION_CONTROL_URL" "missioncontrol.zip"
 [[ -n "$EDIZON_SE_URL" ]] && download_latest_asset "$EDIZON_SE_URL" "edizon-se.zip"
-[[ -n "$TESLA_MENU_URL" ]] && download_latest_asset "$TESLA_MENU_URL" "ovlmenu.zip"
 [[ -n "$SPHAIRA_URL" ]] && download_latest_asset "$SPHAIRA_URL" "sphaira.zip"
 [[ -n "$AIO_UPDATER_URL" ]] && download_latest_asset "$AIO_UPDATER_URL" "aio-switch-updater.zip"
+# 【新增】：条件下载 Ultrahand 发布的 sdout.zip
+[[ -n "$ULTRAHAND_OVERLAY_URL" ]] && download_latest_asset "$ULTRAHAND_OVERLAY_URL" "sdout.zip"
 
 # 2. 独立单文件组件队列 (.nro / .ovl 格式直接重命名归档)
 [[ -n "$AKIRA_URL" ]] && download_latest_asset "$AKIRA_URL" "$OUTPUT_DIR/switch/akira.nro" ".nro"
-[[ -n "$TESLA_MENU_URL" ]] && download_latest_asset "$TESLA_MENU_URL" "$OUTPUT_DIR/switch/.overlays/tesla.ovl" ".ovl"
 [[ -n "$DBI_URL" ]] && download_latest_asset "$DBI_URL" "$OUTPUT_DIR/switch/DBI/DBI.nro" ".nro"
-# 【新增】：条件判断自动抓取最新 .nro 资产，并直接重命名输出为 NX-Shell.nro
 [[ -n "$NX_SHELL_URL" ]] && download_latest_asset "$NX_SHELL_URL" "$OUTPUT_DIR/switch/NX-Shell.nro" ".nro"
 
 # 3. 自定义非 GitHub 组件：MigDumpTool 动态解析与保底判定
@@ -186,12 +183,12 @@ rm -rf "$OUTPUT_DIR/bootloader" "$OUTPUT_DIR/atmosphere"
 [[ -f "hekate.zip" ]] && unzip -u hekate.zip -d "$OUTPUT_DIR"
 [[ -f "atmosphere.zip" ]] && unzip -u atmosphere.zip -d "$OUTPUT_DIR"
 [[ -f "sigpatches.zip" ]] && unzip -u sigpatches.zip -d "$OUTPUT_DIR"
-[[ -f "nx-ovlloader.zip" ]] && unzip -u nx-ovlloader.zip -d "$OUTPUT_DIR"
 [[ -f "missioncontrol.zip" ]] && unzip -u missioncontrol.zip -d "$OUTPUT_DIR"
 [[ -f "edizon-se.zip" ]] && unzip -u edizon-se.zip -d "$OUTPUT_DIR"
-[[ -f "ovlmenu.zip" ]] && unzip -u ovlmenu.zip -d "$OUTPUT_DIR"
 [[ -f "sphaira.zip" ]] && unzip -u sphaira.zip -d "$OUTPUT_DIR"
 [[ -f "aio-switch-updater.zip" ]] && unzip -u aio-switch-updater.zip -d "$OUTPUT_DIR"
+# 【新增】：条件解压 sdout.zip
+[[ -f "sdout.zip" ]] && unzip -u sdout.zip -d "$OUTPUT_DIR"
 echo "Unzip Stage Done!"
 
 # =========================================================
@@ -199,7 +196,7 @@ echo "Unzip Stage Done!"
 # =========================================================
 
 echo "Cleaning up zip files..."
-rm -f hekate.zip atmosphere.zip sigpatches.zip nx-ovlloader.zip missioncontrol.zip edizon-se.zip ovlmenu.zip sphaira.zip aio-switch-updater.zip
+rm -f hekate.zip atmosphere.zip sigpatches.zip missioncontrol.zip edizon-se.zip sphaira.zip aio-switch-updater.zip sdout.zip
 echo "Cleanup Stage Done!"
 
 # =========================================================
