@@ -2,7 +2,7 @@
 
 ### Credit to the Authors at https://rentry.org/CFWGuides
 ### Script created by Fraxalotl
-### Modified for unified API download, path fixes, custom output directory, .nro/.ovl support, precise case-insensitive filtering, and Full Conditional Modularization
+### Modified for unified API download, path fixes, custom output directory, .nro/.ovl support, direct download URL support, and Full Conditional Modularization
 
 # -------------------------------------------
 # 定义基础 Release URL 变量（注释掉或删掉某一行即可完全跳过该组件）
@@ -15,9 +15,12 @@ TESLA_MENU_URL="https://github.com/WerWolv/Tesla-Menu/releases/latest"
 OVLLOADER_URL="https://github.com/WerWolv/nx-ovlloader/releases/latest"
 MISSION_CONTROL_URL="https://github.com/ndeadly/MissionControl/releases/latest"
 DBI_URL="https://github.com/rashevskyv/dbi/releases/latest"
-SPHAIRA_URL="https://github.com/ITTotalJustice/sphaira/releases/latest"
+# SPHAIRA 使用固定直连
+SPHAIRA_URL="https://github.com/ITTotalJustice/sphaira/releases/download/1.0.0/sphaira.zip"
 EDIZON_SE_URL="https://github.com/tomvita/EdiZon-SE/releases/latest"
 AIO_UPDATER_URL="https://github.com/HamletDuFromage/aio-switch-updater/releases/latest"
+# 【新增】：NX-Shell 变量支持
+NX_SHELL_URL="https://github.com/Tproc-labs/NX-Shell-21.0.0/releases/latest"
 
 # MigFlash 官网下载页面 URL（不需要可以注释掉）
 MIG_DUMP_PAGE_URL="https://migflash.com/downloads/"
@@ -64,7 +67,7 @@ mkdir -p "$OUTPUT_DIR/config/ftpsrv"
 mkdir -p "$OUTPUT_DIR/atmosphere"
 
 # -------------------------------------------
-### 统一的 API 下载函数（智能环境感知与动态认证机制）
+### 统一的 API 下载函数（智能环境感知、动态认证与直链识别机制）
 # -------------------------------------------
 download_latest_asset() {
   local repo_url=$1
@@ -73,10 +76,22 @@ download_latest_asset() {
   
   echo "Processing $(basename "$output_path")...."
   
+  # 如果传入的原本就是个已经包含 releases/download 的直链，直接下载并跳过 API 解析
+  if [[ "$repo_url" == *"/releases/download/"* ]]; then
+    echo "=> Detection: Direct download link provided. Skipping GitHub API parsing."
+    echo "Downloading from direct link: $repo_url"
+    curl -sL "$repo_url" -o "$output_path"
+    if [[ $? -eq 0 && -f "$output_path" ]]; then
+      echo "$(basename "$output_path") downloaded successfully from direct link."
+      return 0
+    else
+      echo "Error: Failed to download from direct link: $repo_url"
+      return 1
+    fi
+  fi
+
   # 将标准 GitHub URL 转换为 API URL
   local api_url=$(echo "$repo_url" | sed 's|github.com|api.github.com/repos|')
-  
-  # 核心抓取逻辑变量
   local download_url=""
 
   # 仅原生注入 GITHUB_TOKEN 的 Authorization 头部
@@ -85,20 +100,20 @@ download_latest_asset() {
     auth_header=(-H "Authorization: token $GITHUB_TOKEN")
   fi
 
-  # 拉取 API 核心 JSON 原始数据（加入流控重试防御）
+  # 拉取 API 核心 JSON 原始数据
   local api_response=$(curl "${auth_header[@]}" -sL "$api_url")
 
-  # 针对特定仓库订制硬性筛选规则（全面升级为 ascii_downcase 大小写模糊匹配）
+  # 针对特定仓库订制硬性筛选规则（大小写模糊匹配）
   if [[ "$repo_url" == *"/Tesla-Menu/"* ]]; then
     download_url=$(echo "$api_response" | jq -r 'try (.assets[] | select(.name | ascii_downcase == "ovlmenu.zip") | .browser_download_url) catch null' | head -n 1)
   elif [[ "$repo_url" == *"/sphaira/"* ]]; then
     download_url=$(echo "$api_response" | jq -r 'try (.assets[] | select(.name | ascii_downcase == "sphaira.zip") | .browser_download_url) catch null' | head -n 1)
   else
-    # 通用后缀筛选逻辑
+    # 通用后缀筛选逻辑（如 .zip, .nro, .ovl）
     download_url=$(echo "$api_response" | jq -r --arg ext "$extension" 'try (.assets[] | select(.name | ascii_downcase | endswith($ext | ascii_downcase)) | .browser_download_url) catch null' | head -n 1)
   fi
   
-  # 【降级保底容错】：如果精准规则由于特殊情况依然拿不到数据，触发泛解压匹配模式兜底
+  # 降级保底容错
   if [[ -z "$download_url" || "$download_url" == "null" ]]; then
     echo "=> Notice: Primary API parsing returned null. Activating Fallback Anti-Null Mode..."
     download_url=$(echo "$api_response" | jq -r --arg ext "$extension" 'try (.assets[] | select(.name | ascii_downcase | endswith($ext | ascii_downcase)) | .browser_download_url) catch null' | head -n 1)
@@ -134,10 +149,12 @@ download_latest_asset() {
 [[ -n "$SPHAIRA_URL" ]] && download_latest_asset "$SPHAIRA_URL" "sphaira.zip"
 [[ -n "$AIO_UPDATER_URL" ]] && download_latest_asset "$AIO_UPDATER_URL" "aio-switch-updater.zip"
 
-# 2. 独立单文件组件队列
+# 2. 独立单文件组件队列 (.nro / .ovl 格式直接重命名归档)
 [[ -n "$AKIRA_URL" ]] && download_latest_asset "$AKIRA_URL" "$OUTPUT_DIR/switch/akira.nro" ".nro"
 [[ -n "$TESLA_MENU_URL" ]] && download_latest_asset "$TESLA_MENU_URL" "$OUTPUT_DIR/switch/.overlays/tesla.ovl" ".ovl"
 [[ -n "$DBI_URL" ]] && download_latest_asset "$DBI_URL" "$OUTPUT_DIR/switch/DBI/DBI.nro" ".nro"
+# 【新增】：条件判断自动抓取最新 .nro 资产，并直接重命名输出为 NX-Shell.nro
+[[ -n "$NX_SHELL_URL" ]] && download_latest_asset "$NX_SHELL_URL" "$OUTPUT_DIR/switch/NX-Shell.nro" ".nro"
 
 # 3. 自定义非 GitHub 组件：MigDumpTool 动态解析与保底判定
 if [[ -n "$MIG_DUMP_PAGE_URL" ]]; then
@@ -164,10 +181,8 @@ fi
 # =========================================================
 
 echo "Unzipping Packages into $OUTPUT_DIR..."
-# 提前清理目标目录中可能影响解压的旧目录，确保全新覆盖更新
 rm -rf "$OUTPUT_DIR/bootloader" "$OUTPUT_DIR/atmosphere"
 
-# 仅当对应的 zip 文件在本地真实存在时，才进行解压操作
 [[ -f "hekate.zip" ]] && unzip -u hekate.zip -d "$OUTPUT_DIR"
 [[ -f "atmosphere.zip" ]] && unzip -u atmosphere.zip -d "$OUTPUT_DIR"
 [[ -f "sigpatches.zip" ]] && unzip -u sigpatches.zip -d "$OUTPUT_DIR"
@@ -210,7 +225,7 @@ fi
 # --- 第五阶段：条件写入定制化配置文件 ---
 # =========================================================
 
-### Write hekate_ipl.ini (仅当集成了 Hekate 时才重写配置)
+### Write hekate_ipl.ini
 if [[ -d "$OUTPUT_DIR/bootloader" ]]; then
   echo "Writing hekate_ipl.ini..."
   cat > "$OUTPUT_DIR/bootloader/hekate_ipl.ini" << ENDOFFILE
@@ -275,7 +290,7 @@ fi
 
 # -------------------------------------------
 
-### Write sys-patch config.ini (仅当集成了 Sigpatches 且创建了配置路径时执行)
+### Write sys-patch config.ini
 if [[ -d "$OUTPUT_DIR/config/sys-patch" && -f "$OUTPUT_DIR/switch/sys-patch.nro" || -n "$SIGPATCHES_URL" ]]; then
   echo "Writing sys-patch config.ini..."
   cat > "$OUTPUT_DIR/config/sys-patch/config.ini" << ENDOFFILE
@@ -290,7 +305,7 @@ fi
 
 # -------------------------------------------
 
-### Write sphaira / ftpsrv config.ini (仅当集成了 Sphaira 并在顶部定义了变量时才写入配置)
+### Write sphaira / ftpsrv config.ini
 if [[ -n "$SPHAIRA_URL" ]]; then
   echo "Writing ftpsrv config.ini..."
   cat > "$OUTPUT_DIR/config/ftpsrv/config.ini" << ENDOFFILE
@@ -303,29 +318,20 @@ if [[ -n "$SPHAIRA_URL" ]]; then
 #######################################################################
 
 [Login]
-# disabled by default, do not enable if using ldn_mitm as
-# it's a security risk - you have been warned!
 anon = 1
-
-# if anon is disabled, then user and pass must be set.
 user = ""
 pass = ""
 
 [Network]
-# port 21 is the default port for an ftp server, some platforms may not
-# support using privileged ports, change if needed.
 port = 21
-
 timeout = 60
 
 [Misc]
-# use local time zone over gm (UTC) time zone.
 use_localtime = 1
 
 [Log]
 log = 0
 
-# options specific to Nintendo Switch
 [Nx]
 led = 1
 skip_ascii_convert = 0
@@ -335,7 +341,7 @@ fi
 
 # -------------------------------------------
 
-### Write atmosphere system_settings.ini (仅当集成了大记层核心时写入系统预设)
+### Write atmosphere system_settings.ini
 if [[ -d "$OUTPUT_DIR/atmosphere" ]]; then
   echo "Writing atmosphere system_settings.ini..."
   cat > "$OUTPUT_DIR/atmosphere/system_settings.ini" << ENDOFFILE
