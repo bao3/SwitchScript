@@ -1,0 +1,42 @@
+name: Auto Build Switch SD Card Package
+
+on:
+  schedule:
+    # 每天北京时间 01:00 (UTC 17:00) 自动触发
+    - cron: '0 17 * * *'
+  workflow_dispatch:
+    # 允许在 GitHub 网页上手动点击按钮立即触发构建
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Environment Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl jq unzip
+
+      - name: Make Script Executable
+        run: chmod +x ./switchScript.sh
+
+      - name: Run Switch Build Script
+        run: ./switchScript.sh
+
+      - name: Create Zip Archive
+        # 将生成的 "NS SD Card" 目录打包，-r 代表递归，-j 代表不把顶层文件夹本身打包进去，只打包里面的内容
+        run: |
+          cd "NS SD Card"
+          zip -r ../NS_SD_Card.zip ./*
+          cd ..
+
+      - name: Upload Artifact
+        # 将生成的 Zip 包上传到 GitHub Actions 的 Artifacts 中供下载
+        uses: actions/upload-artifact@v4
+        with:
+          name: NS_SD_Card_Artifact
+          path: NS_SD_Card.zip
+          retention-days: 7 # 压缩包在 GitHub 上保留 7 天
