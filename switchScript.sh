@@ -2,14 +2,17 @@
 
 ### Credit to the Authors at https://rentry.org/CFWGuides
 ### Script created by Fraxalotl
-### Modified for unified API download and path fixes
+### Modified for unified API download, path fixes, and custom output directory
 
 # -------------------------------------------
-# 定义基础 Release URL 变量（统一使用标准官方 Release 首页）
+# 定义基础 Release URL 变量
 # -------------------------------------------
 HEKATE_URL="https://github.com/CTCaer/hekate/releases/latest"
 ATMOSPHERE_URL="https://github.com/Atmosphere-NX/Atmosphere/releases/latest"
 SIGPATCHES_URL="https://github.com/impeeza/sys-patch/releases/latest"
+
+# 定义统一的输出目标目录（末尾不加斜杠）
+OUTPUT_DIR="./NS SD Card"
 
 # -------------------------------------------
 ### Install jq if not already installed
@@ -24,6 +27,9 @@ elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
   # linux
   sudo apt-get install jq
 fi;
+
+# 确保输出目标目录存在
+mkdir -p "$OUTPUT_DIR"
 
 # -------------------------------------------
 ### 统一的 API 下载函数
@@ -55,14 +61,16 @@ download_latest_asset "$ATMOSPHERE_URL" "atmosphere.zip"
 download_latest_asset "$SIGPATCHES_URL" "sigpatches.zip"
 
 # -------------------------------------------
-### Unzip Downloaded Packages
+### Unzip Downloaded Packages to Target Directory
 
-echo "Unzipping Zips..."
-# 提前清理可能影响解压的旧目录，确保全新覆盖更新
-rm -rf bootloader atmosphere
-unzip -u hekate.zip
-unzip -u atmosphere.zip
-unzip -u sigpatches.zip
+echo "Unzipping Zips into $OUTPUT_DIR..."
+# 提前清理目标目录中可能影响解压的旧目录，确保全新覆盖更新
+rm -rf "$OUTPUT_DIR/bootloader" "$OUTPUT_DIR/atmosphere"
+
+# 使用 -d 参数指定解压到目标文件夹
+unzip -u hekate.zip -d "$OUTPUT_DIR"
+unzip -u atmosphere.zip -d "$OUTPUT_DIR"
+unzip -u sigpatches.zip -d "$OUTPUT_DIR"
 echo "Done!"
 
 ### Cleanup Downloaded Zips
@@ -74,29 +82,34 @@ rm -f sigpatches.zip
 echo "Done!"
 
 # -------------------------------------------
-### 移动 fusee.bin (修复路径并增加防御性容错)
+### 移动 fusee.bin 到目标目录下的 payloads
 # -------------------------------------------
-mkdir -p bootloader/payloads
+mkdir -p "$OUTPUT_DIR/bootloader/payloads"
 
+# 如果 fusee.bin 被解压到了当前脚本根目录，将其移动到目标位置
 if [[ -f "fusee.bin" ]]; then
   if [[ "$OSTYPE" == "msys" ]]; then
-    move fusee.bin bootloader/payloads/
+    move fusee.bin "$OUTPUT_DIR/bootloader/payloads/"
   else
-    mv fusee.bin bootloader/payloads/
+    mv fusee.bin "$OUTPUT_DIR/bootloader/payloads/"
   fi
-  echo "fusee.bin moved to bootloader/payloads/"
+  echo "fusee.bin moved to $OUTPUT_DIR/bootloader/payloads/"
+# 防御性代码：有时某些整合包可能会直接解压到目标根目录，这里做个二次校验
+elif [[ -f "$OUTPUT_DIR/fusee.bin" ]]; then
+  mv "$OUTPUT_DIR/fusee.bin" "$OUTPUT_DIR/bootloader/payloads/"
+  echo "fusee.bin relocated from output root to payloads."
 else
-  echo "Warning: fusee.bin not found in root. Checking if it is already in place or misplaced..."
+  echo "Warning: fusee.bin not found."
 fi
 
 # -------------------------------------------
-### 写入配置文件 (全部修正为相对路径，去掉开头的 '/')
+### 写入配置文件 到目标目录下
 # -------------------------------------------
 
-### Write hekate_ipl.ini in bootloader/ directory
-echo "Writing hekate_ipl.ini in bootloader/ directory..."
-mkdir -p bootloader
-cat > bootloader/hekate_ipl.ini << ENDOFFILE
+### Write hekate_ipl.ini
+echo "Writing hekate_ipl.ini..."
+mkdir -p "$OUTPUT_DIR/bootloader"
+cat > "$OUTPUT_DIR/bootloader/hekate_ipl.ini" << ENDOFFILE
 [config]
 autoboot=0
 autoboot_list=0
@@ -121,9 +134,9 @@ echo "Done!"
 
 # -------------------------------------------
 
-### write exosphere.ini in root of SD Card
+### write exosphere.ini
 echo "Writing exosphere.ini..."
-cat > exosphere.ini << ENDOFFILE
+cat > "$OUTPUT_DIR/exosphere.ini" << ENDOFFILE
 [exosphere]
 debugmode=1
 debugmode_user=0
@@ -140,10 +153,10 @@ echo "Done!"
 
 # -------------------------------------------
 
-### Write default.txt in atmosphere/hosts
-echo "Writing default.txt in atmosphere/hosts..."
-mkdir -p atmosphere/hosts
-cat > atmosphere/hosts/default.txt << ENDOFFILE
+### Write default.txt
+echo "Writing default.txt..."
+mkdir -p "$OUTPUT_DIR/atmosphere/hosts"
+cat > "$OUTPUT_DIR/atmosphere/hosts/default.txt" << ENDOFFILE
 # Block Nintendo Servers
 127.0.0.1 *nintendo.*
 127.0.0.1 *nintendo-europe.com
@@ -155,4 +168,4 @@ echo "Done!"
 
 # -------------------------------------------
 
-echo "Your Switch SD card directory structure is prepared in the current folder!"
+echo "Success! Your Switch SD card structure is beautifully prepared in '$OUTPUT_DIR'!"
