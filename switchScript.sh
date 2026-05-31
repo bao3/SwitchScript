@@ -2,7 +2,7 @@
 
 ### Credit to the Authors at https://rentry.org/CFWGuides
 ### Script created by Fraxalotl
-### Modified for unified API download, path fixes, custom output directory, .nro/.ovl support, direct download URL support, and Full Conditional Modularization
+### Modified for unified API download, path fixes, custom output directory, .nro/.ovl support, direct download URL support, separate fusee.bin fetching, and Full Conditional Modularization
 
 # -------------------------------------------
 # 定义基础 Release URL 变量（注释掉或删掉某一行即可完全跳过该组件）
@@ -18,7 +18,6 @@ SPHAIRA_URL="https://github.com/ITTotalJustice/sphaira/releases/download/1.0.0/s
 EDIZON_SE_URL="https://github.com/tomvita/EdiZon-SE/releases/latest"
 AIO_UPDATER_URL="https://github.com/HamletDuFromage/aio-switch-updater/releases/latest"
 NX_SHELL_URL="https://github.com/Tproc-labs/NX-Shell-21.0.0/releases/latest"
-# 【新增】：Ultrahand-Overlay 变量定义
 ULTRAHAND_OVERLAY_URL="https://github.com/ppkantorski/Ultrahand-Overlay/releases/latest"
 
 # MigFlash 官网下载页面 URL（不需要可以注释掉）
@@ -105,10 +104,9 @@ download_latest_asset() {
   if [[ "$repo_url" == *"/sphaira/"* ]]; then
     download_url=$(echo "$api_response" | jq -r 'try (.assets[] | select(.name | ascii_downcase == "sphaira.zip") | .browser_download_url) catch null' | head -n 1)
   elif [[ "$repo_url" == *"/Ultrahand-Overlay/"* ]]; then
-    # 【新增】：精确锁死抓取官方指定的资产文件名 sdout.zip
     download_url=$(echo "$api_response" | jq -r 'try (.assets[] | select(.name | ascii_downcase == "sdout.zip") | .browser_download_url) catch null' | head -n 1)
   else
-    # 通用后缀筛选逻辑（如 .zip, .nro, .ovl）
+    # 通用后缀筛选逻辑（如 .zip, .nro, .ovl, .bin 等）
     download_url=$(echo "$api_response" | jq -r --arg ext "$extension" 'try (.assets[] | select(.name | ascii_downcase | endswith($ext | ascii_downcase)) | .browser_download_url) catch null' | head -n 1)
   fi
   
@@ -140,12 +138,14 @@ download_latest_asset() {
 # 1. 核心解压组件队列
 [[ -n "$HEKATE_URL" ]] && download_latest_asset "$HEKATE_URL" "hekate.zip"
 [[ -n "$ATMOSPHERE_URL" ]] && download_latest_asset "$ATMOSPHERE_URL" "atmosphere.zip"
+# 【新增】：显式提取并下载大层官方发布资产里的核心注入 Payload 引导文件 fusee.bin
+[[ -n "$ATMOSPHERE_URL" ]] && download_latest_asset "$ATMOSPHERE_URL" "fusee.bin" ".bin"
+
 [[ -n "$SIGPATCHES_URL" ]] && download_latest_asset "$SIGPATCHES_URL" "sigpatches.zip"
 [[ -n "$MISSION_CONTROL_URL" ]] && download_latest_asset "$MISSION_CONTROL_URL" "missioncontrol.zip"
 [[ -n "$EDIZON_SE_URL" ]] && download_latest_asset "$EDIZON_SE_URL" "edizon-se.zip"
 [[ -n "$SPHAIRA_URL" ]] && download_latest_asset "$SPHAIRA_URL" "sphaira.zip"
 [[ -n "$AIO_UPDATER_URL" ]] && download_latest_asset "$AIO_UPDATER_URL" "aio-switch-updater.zip"
-# 【新增】：条件下载 Ultrahand 发布的 sdout.zip
 [[ -n "$ULTRAHAND_OVERLAY_URL" ]] && download_latest_asset "$ULTRAHAND_OVERLAY_URL" "sdout.zip"
 
 # 2. 独立单文件组件队列 (.nro / .ovl 格式直接重命名归档)
@@ -187,7 +187,6 @@ rm -rf "$OUTPUT_DIR/bootloader" "$OUTPUT_DIR/atmosphere"
 [[ -f "edizon-se.zip" ]] && unzip -u edizon-se.zip -d "$OUTPUT_DIR"
 [[ -f "sphaira.zip" ]] && unzip -u sphaira.zip -d "$OUTPUT_DIR"
 [[ -f "aio-switch-updater.zip" ]] && unzip -u aio-switch-updater.zip -d "$OUTPUT_DIR"
-# 【新增】：条件解压 sdout.zip
 [[ -f "sdout.zip" ]] && unzip -u sdout.zip -d "$OUTPUT_DIR"
 echo "Unzip Stage Done!"
 
@@ -204,6 +203,7 @@ echo "Cleanup Stage Done!"
 # =========================================================
 mkdir -p "$OUTPUT_DIR/bootloader/payloads"
 
+# 判定如果当前脚本根目录下被成功拉取下来了官方的 fusee.bin，将其剪切移动到指定 payloads 归档路径下
 if [[ -f "fusee.bin" ]]; then
   if [[ "$OSTYPE" == "msys" ]]; then
     move fusee.bin "$OUTPUT_DIR/bootloader/payloads/"
