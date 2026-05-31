@@ -3,7 +3,7 @@ name: Auto Build Switch SD Card Package
 on:
   schedule:
     # 每天北京时间 01:00 (UTC 17:00) 自动触发
-    - cron: '0 17 * * *'
+    - cron: '23 17 * * *'
   workflow_dispatch:
     # 允许在 GitHub 网页上手动点击按钮立即触发构建
 
@@ -56,3 +56,17 @@ jobs:
             NS_SD_Card.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Keep Workflow Alive (Auto Commit)
+      run: |
+        # 检查距离上一次非 Bot 提交或当前活跃状态，或者干脆每次运行/隔几周运行一次
+        # 这里演示每次运行成功后，都向 keep_alive.txt 写入当前时间戳
+        date > keep_alive.txt
+        
+        # 检查文件是否有变动，如果有变动则提交（防止无意义报错）
+        if ! git diff --exit-code keep_alive.txt; then
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add keep_alive.txt
+          git commit -m "chore: keep workflow alive via auto-timestamp [skip ci]"
+          git push
+        fi      
