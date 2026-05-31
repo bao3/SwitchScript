@@ -7,7 +7,7 @@ on:
     - cron: '13 17 * * *'
   workflow_dispatch: # 开启手动触发通道，允许在 GitHub 网页端 Actions 页面一键点击运行
 
-# 显式声明全局安全上下文权限，赋予 Workflow 能够修改仓库代码（Push）的最高写权限
+# 显式声明全局安全上下文权限，赋予 Workflow 能够修改仓库代码（Push）以及创建 Release 的最高写权限
 permissions:
   contents: write
   actions: write
@@ -38,15 +38,38 @@ jobs:
           chmod +x ./switchScript.sh
           ./switchScript.sh
 
-      # 第四步：【可选】归档并打包生成的 SD 卡全架构目录，方便在网页端直接下载
-      - name: Archive and Upload Build Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: NS-SD-Card-Structure
-          path: "./NS SD Card/"
-          retention-days: 7 # 压缩包在 GitHub 服务器上保存 7 天
+      # 第四步：在云端将生成的文件夹压缩为 zip 包，准备用于 Release 发布
+      - name: Compress SD Card Folder
+        run: |
+          if [ -d "./NS SD Card" ]; then
+            cd "./NS SD Card"
+            # 将目录下的所有内容打包为 NS-SD-Card-Structure.zip
+            zip -r ../NS-SD-Card-Structure.zip ./*
+            cd ..
+            echo "==> Success: Folder compressed into NS-SD-Card-Structure.zip"
+          else
+            echo "Error: Target directory './NS SD Card' not found!"
+            exit 1
+          fi
 
-      # 第五步：自动化“内核续命”防御机制（彻底解决 60 天无 Commit 导致自动化暂停的痛点）
+      # 第五步：自动创建/覆盖更新仓库的 GitHub Release (latest)
+      # 每次运行都会将最新的压缩包推送到你仓库的 Releases 页面中，并固定命名为 latest
+      - name: Update GitHub Release (latest)
+        uses: ncipollo/release-action@v1
+        with:
+          artifacts: "NS-SD-Card-Structure.zip" # 要发布的文件
+          tag: "latest"                           # 固定的 Release 标签
+          name: "Nintendo Switch SD Card Latest Build"
+          body: |
+            Automated build generated on $(date -u +"%Y-%m-%d %H:%M:%S UTC").
+            Contains latest integration of Atmosphere, Hekate, Sigpatches, and sys-modules.
+          allowUpdates: true                      # 允许覆盖已有版本
+          removeArtifacts: true                   # 覆盖时移除旧文件
+          replacesArtifacts: true                 # 替换同名资产文件
+          makeLatest: true                        # 强制将其设为仓库的最新的 Release
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # 第六步：自动化“内核续命”防御机制（彻底解决 60 天无 Commit 导致自动化暂停的痛点）
       # 原理：每次脚本成功跑完，都会强制更新本地的一个时间戳文件并自动 Push 推送回仓库。
       # 从而在 GitHub 看来，该仓库永远处于活跃迭代状态，实现 Actions 永久不灭。
       - name: Automated Keep-Alive Self-Commit
