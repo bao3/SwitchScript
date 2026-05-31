@@ -2,7 +2,7 @@
 
 ### Credit to the Authors at https://rentry.org/CFWGuides
 ### Script created by Fraxalotl
-### Modified for unified API download, path fixes, custom output directory, .nro/.ovl support, precise zip filtering, and Full Conditional Modularization
+### Modified for unified API download, path fixes, custom output directory, .nro/.ovl support, precise zip filtering, and robust API Fallback Mechanism
 
 # -------------------------------------------
 # 定义基础 Release URL 变量（注释掉或删掉某一行即可完全跳过该组件）
@@ -64,7 +64,7 @@ mkdir -p "$OUTPUT_DIR/config/ftpsrv"
 mkdir -p "$OUTPUT_DIR/atmosphere"
 
 # -------------------------------------------
-### 统一的 API 下载函数（智能环境感知与动态认证机制）
+### 统一的 API 下载函数（带双重 Fallback 保险防御机制）
 # -------------------------------------------
 download_latest_asset() {
   local repo_url=$1
@@ -85,22 +85,31 @@ download_latest_asset() {
     auth_header=(-H "Authorization: token $GITHUB_TOKEN")
   fi
 
-  # 针对特定仓库订制硬性筛选规则，精准匹配目标资产
+  # --- 第一预案：尝试带特定定制规则或带 Token 请求 ---
   if [[ "$repo_url" == *"/Tesla-Menu/"* ]]; then
-    download_url=$(curl "${auth_header[@]}" -sL "$api_url" | jq -r '.assets[] | select(.name == "ovlmenu.zip") | .browser_download_url' | head -n 1)
+    download_url=$(curl "${auth_header[@]}" -sL "$api_url" | jq -r 'try (.assets[] | select(.name == "ovlmenu.zip") | .browser_download_url) catch null' | head -n 1)
   elif [[ "$repo_url" == *"/sphaira/"* ]]; then
-    download_url=$(curl "${auth_header[@]}" -sL "$api_url" | jq -r '.assets[] | select(.name == "sphaira.zip") | .browser_download_url' | head -n 1)
+    download_url=$(curl "${auth_header[@]}" -sL "$api_url" | jq -r 'try (.assets[] | select(.name == "sphaira.zip") | .browser_download_url) catch null' | head -n 1)
   else
     download_url=$(curl "${auth_header[@]}" -sL "$api_url" | jq -r --arg ext "$extension" 'try (.assets[] | select(.name | ascii_downcase | endswith($ext | ascii_downcase)) | .browser_download_url) catch null' | head -n 1)
   fi
   
+  # --- 第二预案（关键修复）：如果第一预案返回失败（null或空），启动纯净脱钩重试机制 ---
   if [[ -z "$download_url" || "$download_url" == "null" ]]; then
-    echo "Error: Failed to fetch download URL for $output_path"
+    echo "=> Notice: Primary API parsing returned null. Activating Fallback Anti-Null Mode..."
+    # 彻底去掉自定义 Header，并使用通用末尾后缀过滤规则强制重试机制，加入 try catch 绝对防止阻断
+    download_url=$(curl -sL "$api_url" | jq -r --arg ext "$extension" 'try (.assets[] | select(.name | ascii_downcase | endswith($ext | ascii_downcase)) | .browser_download_url) catch null' | head -n 1)
+  fi
+  
+  # 如果双重保险都失败了，才触发报错
+  if [[ -z "$download_url" || "$download_url" == "null" ]]; then
+    echo "Error: Failed to fetch download URL for $output_path after dual-channel retries."
     echo "Waiting 5 seconds before continuing..."
     sleep 5
     return 1
   fi
   
+  # 下载实际资产
   echo "Downloading from: $download_url"
   curl -sL "$download_url" -o "$output_path"
   echo "$(basename "$output_path") downloaded successfully."
@@ -174,7 +183,6 @@ echo "Unzip Stage Done!"
 # =========================================================
 
 echo "Cleaning up zip files..."
-# 使用 -f 强制删除，仅当文件存在时抹除，防止空跑报错
 rm -f hekate.zip atmosphere.zip sigpatches.zip nx-ovlloader.zip missioncontrol.zip edizon-se.zip ovlmenu.zip sphaira.zip aio-switch-updater.zip
 echo "Cleanup Stage Done!"
 
