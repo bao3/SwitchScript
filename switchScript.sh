@@ -2,7 +2,7 @@
 
 ### Credit to the Authors at https://rentry.org/CFWGuides
 ### Script created by Fraxalotl
-### Modified for unified API download, path fixes, custom output directory, .nro/.ovl support, direct download URL support, separate fusee.bin fetching, and Absolute Atmosphere Core Dominance (Fixing Version Downgrade Trap)
+### Modified for unified API download, path fixes, custom output directory, .nro/.ovl support, direct download URL support, separate fusee.bin fetching, Absolute Atmosphere Core Dominance, Sub-INI Menu Extension, and Isolated emuMMC DNS Blocking
 
 # -------------------------------------------
 # 定义基础 Release URL 变量（注释掉或删掉某一行即可完全跳过该组件）
@@ -62,6 +62,7 @@ mkdir -p "$OUTPUT_DIR/switch/MigDumpTool"
 mkdir -p "$OUTPUT_DIR/config/sys-patch"
 mkdir -p "$OUTPUT_DIR/config/ftpsrv"
 mkdir -p "$OUTPUT_DIR/atmosphere"
+mkdir -p "$OUTPUT_DIR/bootloader/ini"
 
 # -------------------------------------------
 ### 统一的 API 下载函数（智能环境感知、动态认证与直链识别机制）
@@ -106,7 +107,7 @@ download_latest_asset() {
   elif [[ "$repo_url" == *"/Ultrahand-Overlay/"* ]]; then
     download_url=$(echo "$api_response" | jq -r 'try (.assets[] | select(.name | ascii_downcase == "sdout.zip") | .browser_download_url) catch null' | head -n 1)
   else
-    # 通用后缀筛选逻辑（如 .zip, .nro, .ovl, .bin 等）
+    # 通用后缀筛选逻辑
     download_url=$(echo "$api_response" | jq -r --arg ext "$extension" 'try (.assets[] | select(.name | ascii_downcase | endswith($ext | ascii_downcase)) | .browser_download_url) catch null' | head -n 1)
   fi
   
@@ -166,14 +167,13 @@ if [[ -n "$MIG_DUMP_PAGE_URL" ]]; then
 fi
 
 # =========================================================
-# --- 第二阶段：【重构】无损合并与核心覆盖解压 ---
+# --- 第二阶段：无损合并与核心覆盖解压 ---
 # =========================================================
 
 echo "Unzipping Packages into $OUTPUT_DIR..."
-# 物理抹除老旧残存目录
 rm -rf "$OUTPUT_DIR/bootloader" "$OUTPUT_DIR/atmosphere"
 
-# 1. 首先：解压引导器与所有可能含有潜在老旧大层组件的第三方扩展包
+# 1. 首先：解压引导器与所有第三方扩展包
 [[ -f "hekate.zip" ]] && unzip -u hekate.zip -d "$OUTPUT_DIR"
 [[ -f "sigpatches.zip" ]] && unzip -u sigpatches.zip -d "$OUTPUT_DIR"
 [[ -f "missioncontrol.zip" ]] && unzip -u missioncontrol.zip -d "$OUTPUT_DIR"
@@ -182,8 +182,7 @@ rm -rf "$OUTPUT_DIR/bootloader" "$OUTPUT_DIR/atmosphere"
 [[ -f "aio-switch-updater.zip" ]] && unzip -u aio-switch-updater.zip -d "$OUTPUT_DIR"
 [[ -f "sdout.zip" ]] && unzip -u sdout.zip -d "$OUTPUT_DIR"
 
-# 2. 最后：强行、无条件解压官方大层核心组件！
-# 使用 -o 参数彻底剥夺任何第三方包的抢跑特权，确保 1.11.1 核心数据拥有最高统治地位
+# 2. 最后：强行、无条件解压官方大层核心组件！（确保 1.11.1 拥有最高统治地位）
 [[ -f "atmosphere.zip" ]] && unzip -o atmosphere.zip -d "$OUTPUT_DIR"
 
 echo "Unzip Stage Done!"
@@ -219,7 +218,7 @@ fi
 # --- 第五阶段：条件写入定制化配置文件 ---
 # =========================================================
 
-### Write hekate_ipl.ini (全面适配现代推荐标准语法)
+### Write hekate_ipl.ini
 if [[ -d "$OUTPUT_DIR/bootloader" ]]; then
   echo "Writing hekate_ipl.ini..."
   cat > "$OUTPUT_DIR/bootloader/hekate_ipl.ini" << ENDOFFILE
@@ -237,11 +236,6 @@ bootprotect=0
 fss0=atmosphere/package3
 icon=bootloader/res/icon_payload.bmp
 
-[CFW - SysNAND Safety Mode]
-fss0=atmosphere/package3
-emummc_force_disable=1
-icon=bootloader/res/icon_switch.bmp
-
 [Stock - Pure Official]
 fss0=atmosphere/package3
 stock=1
@@ -252,8 +246,22 @@ ENDOFFILE
 fi
 
 # -------------------------------------------
+### 动态生成独立的子扩展菜单 CFW-sysNAND.ini
+if [[ -d "$OUTPUT_DIR/bootloader" ]]; then
+  echo "Writing CFW-sysNAND.ini into bootloader/ini/..."
+  mkdir -p "$OUTPUT_DIR/bootloader/ini"
+  cat > "$OUTPUT_DIR/bootloader/ini/CFW-sysNAND.ini" << ENDOFFILE
+[CFW-sysNAND]
+pkg3=atmosphere/package3
+emummc_force_disable=1
+icon=bootloader/res/icon_switch.bmp
+ENDOFFILE
+  echo "Done!"
+fi
 
-### write exosphere.ini (两端同步空白化，全方位绕过硬件 CAL0 校验死锁)
+# -------------------------------------------
+
+### write exosphere.ini
 echo "Writing exosphere.ini..."
 cat > "$OUTPUT_DIR/exosphere.ini" << ENDOFFILE
 [exosphere]
@@ -272,12 +280,12 @@ echo "Done!"
 
 # -------------------------------------------
 
-### Write default.txt
+### 【已修改】：创建仅在虚拟系统下生效的 emummc.txt，实现 DNS 局部隔离
 if [[ -d "$OUTPUT_DIR/atmosphere" ]]; then
-  echo "Writing default.txt..."
+  echo "Writing emummc.txt (Strictly isolated DNS block for emuMMC)..."
   mkdir -p "$OUTPUT_DIR/atmosphere/hosts"
-  cat > "$OUTPUT_DIR/atmosphere/hosts/default.txt" << ENDOFFILE
-# Block Nintendo Servers
+  cat > "$OUTPUT_DIR/atmosphere/hosts/emummc.txt" << ENDOFFILE
+# Block Nintendo Servers (Only affects emuMMC)
 127.0.0.1 *nintendo.*
 127.0.0.1 *nintendo-europe.com
 127.0.0.1 *nintendoswitch.*
@@ -346,7 +354,7 @@ ENDOFFILE
 fi
 
 # -------------------------------------------
-### Write stratosphere.ini (锁定卡槽驱动保护，防止 SysNAND 暴毙)
+### Write stratosphere.ini
 if [[ -d "$OUTPUT_DIR/atmosphere" ]]; then
   echo "Writing stratosphere.ini..."
   mkdir -p "$OUTPUT_DIR/atmosphere/config"
