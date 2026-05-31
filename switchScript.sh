@@ -2,7 +2,7 @@
 
 ### Credit to the Authors at https://rentry.org/CFWGuides
 ### Script created by Fraxalotl
-### Modified for unified API download, path fixes, custom output directory, .nro/.ovl support, precise zip filtering, and robust API Fallback Mechanism
+### Modified for unified API download, path fixes, custom output directory, .nro/.ovl support, precise case-insensitive filtering, and Full Conditional Modularization
 
 # -------------------------------------------
 # 定义基础 Release URL 变量（注释掉或删掉某一行即可完全跳过该组件）
@@ -64,7 +64,7 @@ mkdir -p "$OUTPUT_DIR/config/ftpsrv"
 mkdir -p "$OUTPUT_DIR/atmosphere"
 
 # -------------------------------------------
-### 统一的 API 下载函数（带双重 Fallback 保险防御机制）
+### 统一的 API 下载函数（智能环境感知与动态认证机制）
 # -------------------------------------------
 download_latest_asset() {
   local repo_url=$1
@@ -79,29 +79,31 @@ download_latest_asset() {
   # 核心抓取逻辑变量
   local download_url=""
 
-  # 仅在 GitHub Actions 且 Token 存在时才注入 Authorization 头部
+  # 仅原生注入 GITHUB_TOKEN 的 Authorization 头部
   local auth_header=()
   if [[ "$GITHUB_ACTIONS" == "true" && -n "$GITHUB_TOKEN" ]]; then
     auth_header=(-H "Authorization: token $GITHUB_TOKEN")
   fi
 
-  # --- 第一预案：尝试带特定定制规则或带 Token 请求 ---
+  # 拉取 API 核心 JSON 原始数据（加入流控重试防御）
+  local api_response=$(curl "${auth_header[@]}" -sL "$api_url")
+
+  # 针对特定仓库订制硬性筛选规则（全面升级为 ascii_downcase 大小写模糊匹配）
   if [[ "$repo_url" == *"/Tesla-Menu/"* ]]; then
-    download_url=$(curl "${auth_header[@]}" -sL "$api_url" | jq -r 'try (.assets[] | select(.name == "ovlmenu.zip") | .browser_download_url) catch null' | head -n 1)
+    download_url=$(echo "$api_response" | jq -r 'try (.assets[] | select(.name | ascii_downcase == "ovlmenu.zip") | .browser_download_url) catch null' | head -n 1)
   elif [[ "$repo_url" == *"/sphaira/"* ]]; then
-    download_url=$(curl "${auth_header[@]}" -sL "$api_url" | jq -r 'try (.assets[] | select(.name == "sphaira.zip") | .browser_download_url) catch null' | head -n 1)
+    download_url=$(echo "$api_response" | jq -r 'try (.assets[] | select(.name | ascii_downcase == "sphaira.zip") | .browser_download_url) catch null' | head -n 1)
   else
-    download_url=$(curl "${auth_header[@]}" -sL "$api_url" | jq -r --arg ext "$extension" 'try (.assets[] | select(.name | ascii_downcase | endswith($ext | ascii_downcase)) | .browser_download_url) catch null' | head -n 1)
+    # 通用后缀筛选逻辑
+    download_url=$(echo "$api_response" | jq -r --arg ext "$extension" 'try (.assets[] | select(.name | ascii_downcase | endswith($ext | ascii_downcase)) | .browser_download_url) catch null' | head -n 1)
   fi
   
-  # --- 第二预案（关键修复）：如果第一预案返回失败（null或空），启动纯净脱钩重试机制 ---
+  # 【降级保底容错】：如果精准规则由于特殊情况依然拿不到数据，触发泛解压匹配模式兜底
   if [[ -z "$download_url" || "$download_url" == "null" ]]; then
     echo "=> Notice: Primary API parsing returned null. Activating Fallback Anti-Null Mode..."
-    # 彻底去掉自定义 Header，并使用通用末尾后缀过滤规则强制重试机制，加入 try catch 绝对防止阻断
-    download_url=$(curl -sL "$api_url" | jq -r --arg ext "$extension" 'try (.assets[] | select(.name | ascii_downcase | endswith($ext | ascii_downcase)) | .browser_download_url) catch null' | head -n 1)
+    download_url=$(echo "$api_response" | jq -r --arg ext "$extension" 'try (.assets[] | select(.name | ascii_downcase | endswith($ext | ascii_downcase)) | .browser_download_url) catch null' | head -n 1)
   fi
-  
-  # 如果双重保险都失败了，才触发报错
+
   if [[ -z "$download_url" || "$download_url" == "null" ]]; then
     echo "Error: Failed to fetch download URL for $output_path after dual-channel retries."
     echo "Waiting 5 seconds before continuing..."
@@ -109,7 +111,6 @@ download_latest_asset() {
     return 1
   fi
   
-  # 下载实际资产
   echo "Downloading from: $download_url"
   curl -sL "$download_url" -o "$output_path"
   echo "$(basename "$output_path") downloaded successfully."
