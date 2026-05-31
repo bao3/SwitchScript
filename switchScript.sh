@@ -2,10 +2,10 @@
 
 ### Credit to the Authors at https://rentry.org/CFWGuides
 ### Script created by Fraxalotl
-### Modified for unified API download, path fixes, custom output directory, .nro/.ovl support, precise zip filtering, and aio-switch-updater integration
+### Modified for unified API download, path fixes, custom output directory, .nro/.ovl support, precise zip filtering, and Full Conditional Modularization
 
 # -------------------------------------------
-# 定义基础 Release URL 变量
+# 定义基础 Release URL 变量（注释掉或删掉某一行即可完全跳过该组件）
 # -------------------------------------------
 HEKATE_URL="https://github.com/CTCaer/hekate/releases/latest"
 ATMOSPHERE_URL="https://github.com/Atmosphere-NX/Atmosphere/releases/latest"
@@ -19,11 +19,25 @@ SPHAIRA_URL="https://github.com/ITTotalJustice/sphaira/releases/latest"
 EDIZON_SE_URL="https://github.com/tomvita/EdiZon-SE/releases/latest"
 AIO_UPDATER_URL="https://github.com/HamletDuFromage/aio-switch-updater/releases/latest"
 
-# MigFlash 官网下载页面 URL
+# MigFlash 官网下载页面 URL（不需要可以注释掉）
 MIG_DUMP_PAGE_URL="https://migflash.com/downloads/"
 
 # 定义统一的输出目标目录（末尾不加斜杠）
 OUTPUT_DIR="./NS SD Card"
+
+# -------------------------------------------
+### 环境检测与 1.0 版本兼容性处理
+# -------------------------------------------
+if [[ "$GITHUB_ACTIONS" == "true" ]]; then
+  echo "==> Detection: Running inside GitHub Actions Environment."
+  if [[ -z "$GITHUB_TOKEN" ]]; then
+    echo "==> Warning: GITHUB_ACTIONS is true but GITHUB_TOKEN is empty! API rate limits may apply."
+  else
+    echo "==> Authentication: GITHUB_TOKEN detected. Using GitHub Authenticated API Channel."
+  fi
+else
+  echo "==> Detection: Running inside Local OS / Standard Bash Environment."
+fi
 
 # -------------------------------------------
 ### Install jq if not already installed
@@ -50,7 +64,7 @@ mkdir -p "$OUTPUT_DIR/config/ftpsrv"
 mkdir -p "$OUTPUT_DIR/atmosphere"
 
 # -------------------------------------------
-### 统一的 API 下载函数（包含精准过滤与睡眠抗限机制）
+### 统一的 API 下载函数（智能环境感知与动态认证机制）
 # -------------------------------------------
 download_latest_asset() {
   local repo_url=$1
@@ -65,16 +79,19 @@ download_latest_asset() {
   # 核心抓取逻辑变量
   local download_url=""
 
+  # 仅在 GitHub Actions 且 Token 存在时才注入 Authorization 头部
+  local auth_header=()
+  if [[ "$GITHUB_ACTIONS" == "true" && -n "$GITHUB_TOKEN" ]]; then
+    auth_header=(-H "Authorization: token $GITHUB_TOKEN")
+  fi
+
   # 针对特定仓库订制硬性筛选规则，精准匹配目标资产
   if [[ "$repo_url" == *"/Tesla-Menu/"* ]]; then
-    # Tesla Menu 明确抓取 ovlmenu.zip
-    download_url=$(curl -sL "$api_url" | jq -r '.assets[] | select(.name == "ovlmenu.zip") | .browser_download_url' | head -n 1)
+    download_url=$(curl "${auth_header[@]}" -sL "$api_url" | jq -r '.assets[] | select(.name == "ovlmenu.zip") | .browser_download_url' | head -n 1)
   elif [[ "$repo_url" == *"/sphaira/"* ]]; then
-    # Sphaira 完全精准抓取不带版本号的 sphaira.zip
-    download_url=$(curl -sL "$api_url" | jq -r '.assets[] | select(.name == "sphaira.zip") | .browser_download_url' | head -n 1)
+    download_url=$(curl "${auth_header[@]}" -sL "$api_url" | jq -r '.assets[] | select(.name == "sphaira.zip") | .browser_download_url' | head -n 1)
   else
-    # 通用筛选逻辑
-    download_url=$(curl -sL "$api_url" | jq -r --arg ext "$extension" 'try (.assets[] | select(.name | ascii_downcase | endswith($ext | ascii_downcase)) | .browser_download_url) catch null' | head -n 1)
+    download_url=$(curl "${auth_header[@]}" -sL "$api_url" | jq -r --arg ext "$extension" 'try (.assets[] | select(.name | ascii_downcase | endswith($ext | ascii_downcase)) | .browser_download_url) catch null' | head -n 1)
   fi
   
   if [[ -z "$download_url" || "$download_url" == "null" ]]; then
@@ -88,88 +105,84 @@ download_latest_asset() {
   curl -sL "$download_url" -o "$output_path"
   echo "$(basename "$output_path") downloaded successfully."
   
-  # 每次请求完成后休眠 5 秒，防止触发 GitHub API 的 Rate Limit
   echo "Sleeping 5 seconds to prevent GitHub API rate limiting..."
   sleep 5
 }
 
-# --- 执行下载核心组件（下载到当前目录准备解压） ---
-download_latest_asset "$HEKATE_URL" "hekate.zip"
-download_latest_asset "$ATMOSPHERE_URL" "atmosphere.zip"
-download_latest_asset "$SIGPATCHES_URL" "sigpatches.zip"
-download_latest_asset "$OVLLOADER_URL" "nx-ovlloader.zip"
-download_latest_asset "$MISSION_CONTROL_URL" "missioncontrol.zip"
-download_latest_asset "$EDIZON_SE_URL" "edizon-se.zip"
-download_latest_asset "$TESLA_MENU_URL" "ovlmenu.zip"       # 下载为 ovlmenu.zip
-download_latest_asset "$SPHAIRA_URL" "sphaira.zip"         # 下载为 sphaira.zip
-download_latest_asset "$AIO_UPDATER_URL" "aio-switch-updater.zip" # 新增：下载为 aio-switch-updater.zip
+# =========================================================
+# --- 第一阶段：条件判定下载核心/独立组件 ---
+# =========================================================
 
-# --- 执行下载独立单文件组件（直接过滤对应的后缀并存入目标目录） ---
-# 下载 Akira (.nro)
-download_latest_asset "$AKIRA_URL" "$OUTPUT_DIR/switch/akira.nro" ".nro"
-# 下载 Tesla-Menu (.ovl) 作为双重保险
-download_latest_asset "$TESLA_MENU_URL" "$OUTPUT_DIR/switch/.overlays/tesla.ovl" ".ovl"
-# 下载 DBI (.nro)
-download_latest_asset "$DBI_URL" "$OUTPUT_DIR/switch/DBI/DBI.nro" ".nro"
+# 1. 核心解压组件队列
+[[ -n "$HEKATE_URL" ]] && download_latest_asset "$HEKATE_URL" "hekate.zip"
+[[ -n "$ATMOSPHERE_URL" ]] && download_latest_asset "$ATMOSPHERE_URL" "atmosphere.zip"
+[[ -n "$SIGPATCHES_URL" ]] && download_latest_asset "$SIGPATCHES_URL" "sigpatches.zip"
+[[ -n "$OVLLOADER_URL" ]] && download_latest_asset "$OVLLOADER_URL" "nx-ovlloader.zip"
+[[ -n "$MISSION_CONTROL_URL" ]] && download_latest_asset "$MISSION_CONTROL_URL" "missioncontrol.zip"
+[[ -n "$EDIZON_SE_URL" ]] && download_latest_asset "$EDIZON_SE_URL" "edizon-se.zip"
+[[ -n "$TESLA_MENU_URL" ]] && download_latest_asset "$TESLA_MENU_URL" "ovlmenu.zip"
+[[ -n "$SPHAIRA_URL" ]] && download_latest_asset "$SPHAIRA_URL" "sphaira.zip"
+[[ -n "$AIO_UPDATER_URL" ]] && download_latest_asset "$AIO_UPDATER_URL" "aio-switch-updater.zip"
 
-# 5. 动态解析并下载最新的 MigDumpTool (.nro)
-echo "Processing MigDumpTool.nro..."
-MIG_DUMP_REAL_URL=$(curl -sL --connect-timeout 5 "$MIG_DUMP_PAGE_URL" | grep -o 'https://migflash.com/downloads/MigDumpTool-[^"]*\.nro' | head -n 1)
+# 2. 独立单文件组件队列
+[[ -n "$AKIRA_URL" ]] && download_latest_asset "$AKIRA_URL" "$OUTPUT_DIR/switch/akira.nro" ".nro"
+[[ -n "$TESLA_MENU_URL" ]] && download_latest_asset "$TESLA_MENU_URL" "$OUTPUT_DIR/switch/.overlays/tesla.ovl" ".ovl"
+[[ -n "$DBI_URL" ]] && download_latest_asset "$DBI_URL" "$OUTPUT_DIR/switch/DBI/DBI.nro" ".nro"
 
-# 防御性逻辑：如果动态抓取失败，采用固定 URL 作为保底方案
-if [[ -z "$MIG_DUMP_REAL_URL" ]]; then
-  echo "Warning: Failed to parse latest URL. Using fallback static URL..."
-  MIG_DUMP_REAL_URL="https://migflash.com/downloads/MigDumpTool-v0.0.2.nro"
+# 3. 自定义非 GitHub 组件：MigDumpTool 动态解析与保底判定
+if [[ -n "$MIG_DUMP_PAGE_URL" ]]; then
+  echo "Processing MigDumpTool.nro..."
+  MIG_DUMP_REAL_URL=$(curl -sL --connect-timeout 5 "$MIG_DUMP_PAGE_URL" | grep -o 'https://migflash.com/downloads/MigDumpTool-[^"]*\.nro' | head -n 1)
+
+  if [[ -z "$MIG_DUMP_REAL_URL" ]]; then
+    echo "Warning: Failed to parse latest URL. Using fallback static URL..."
+    MIG_DUMP_REAL_URL="https://migflash.com/downloads/MigDumpTool-v0.0.2.nro"
+  fi
+
+  echo "Downloading MigDumpTool from: $MIG_DUMP_REAL_URL"
+  curl -sLf "$MIG_DUMP_REAL_URL" -o "$OUTPUT_DIR/switch/MigDumpTool/MigDumpTool.nro"
+
+  if [[ $? -eq 0 ]]; then
+    echo "MigDumpTool.nro downloaded successfully."
+  else
+    echo "Error: Failed to download MigDumpTool. Please check your network connection."
+  fi
 fi
 
-echo "Downloading MigDumpTool from: $MIG_DUMP_REAL_URL"
-curl -sLf "$MIG_DUMP_REAL_URL" -o "$OUTPUT_DIR/switch/MigDumpTool/MigDumpTool.nro"
+# =========================================================
+# --- 第二阶段：条件判定解压 Packages 到目标目录 ---
+# =========================================================
 
-if [[ $? -eq 0 ]]; then
-  echo "MigDumpTool.nro downloaded successfully."
-else
-  echo "Error: Failed to download MigDumpTool. Please check your network connection."
-fi
-
-# -------------------------------------------
-### Unzip Downloaded Packages to Target Directory
-
-echo "Unzipping Zips into $OUTPUT_DIR..."
+echo "Unzipping Packages into $OUTPUT_DIR..."
 # 提前清理目标目录中可能影响解压的旧目录，确保全新覆盖更新
 rm -rf "$OUTPUT_DIR/bootloader" "$OUTPUT_DIR/atmosphere"
 
-# 使用 -d 参数指定解压到目标文件夹
-unzip -u hekate.zip -d "$OUTPUT_DIR"
-unzip -u atmosphere.zip -d "$OUTPUT_DIR"
-unzip -u sigpatches.zip -d "$OUTPUT_DIR"
-unzip -u nx-ovlloader.zip -d "$OUTPUT_DIR"
-unzip -u missioncontrol.zip -d "$OUTPUT_DIR"
-unzip -u edizon-se.zip -d "$OUTPUT_DIR"
-unzip -u ovlmenu.zip -d "$OUTPUT_DIR"
-unzip -u sphaira.zip -d "$OUTPUT_DIR"
-unzip -u aio-switch-updater.zip -d "$OUTPUT_DIR"  # 新增：解压 aio-switch-updater
-echo "Done!"
+# 仅当对应的 zip 文件在本地真实存在时，才进行解压操作
+[[ -f "hekate.zip" ]] && unzip -u hekate.zip -d "$OUTPUT_DIR"
+[[ -f "atmosphere.zip" ]] && unzip -u atmosphere.zip -d "$OUTPUT_DIR"
+[[ -f "sigpatches.zip" ]] && unzip -u sigpatches.zip -d "$OUTPUT_DIR"
+[[ -f "nx-ovlloader.zip" ]] && unzip -u nx-ovlloader.zip -d "$OUTPUT_DIR"
+[[ -f "missioncontrol.zip" ]] && unzip -u missioncontrol.zip -d "$OUTPUT_DIR"
+[[ -f "edizon-se.zip" ]] && unzip -u edizon-se.zip -d "$OUTPUT_DIR"
+[[ -f "ovlmenu.zip" ]] && unzip -u ovlmenu.zip -d "$OUTPUT_DIR"
+[[ -f "sphaira.zip" ]] && unzip -u sphaira.zip -d "$OUTPUT_DIR"
+[[ -f "aio-switch-updater.zip" ]] && unzip -u aio-switch-updater.zip -d "$OUTPUT_DIR"
+echo "Unzip Stage Done!"
 
-### Cleanup Downloaded Zips
+# =========================================================
+# --- 第三阶段：条件判定清理临时 Zip 文件 ---
+# =========================================================
 
 echo "Cleaning up zip files..."
-rm -f hekate.zip
-rm -f atmosphere.zip
-rm -f sigpatches.zip
-rm -f nx-ovlloader.zip
-rm -f missioncontrol.zip
-rm -f edizon-se.zip
-rm -f ovlmenu.zip
-rm -f sphaira.zip
-rm -f aio-switch-updater.zip  # 新增：清理临时压缩包
-echo "Done!"
+# 使用 -f 强制删除，仅当文件存在时抹除，防止空跑报错
+rm -f hekate.zip atmosphere.zip sigpatches.zip nx-ovlloader.zip missioncontrol.zip edizon-se.zip ovlmenu.zip sphaira.zip aio-switch-updater.zip
+echo "Cleanup Stage Done!"
 
-# -------------------------------------------
-### 移动 fusee.bin 到目标目录下的 payloads
-# -------------------------------------------
+# =========================================================
+# --- 第四阶段：移动核心 Payload 引导文件 ---
+# =========================================================
 mkdir -p "$OUTPUT_DIR/bootloader/payloads"
 
-# 如果 fusee.bin 被解压到了当前脚本根目录，将其移动到目标位置
 if [[ -f "fusee.bin" ]]; then
   if [[ "$OSTYPE" == "msys" ]]; then
     move fusee.bin "$OUTPUT_DIR/bootloader/payloads/"
@@ -177,7 +190,6 @@ if [[ -f "fusee.bin" ]]; then
     mv fusee.bin "$OUTPUT_DIR/bootloader/payloads/"
   fi
   echo "fusee.bin moved to $OUTPUT_DIR/bootloader/payloads/"
-# 防御性代码
 elif [[ -f "$OUTPUT_DIR/fusee.bin" ]]; then
   mv "$OUTPUT_DIR/fusee.bin" "$OUTPUT_DIR/bootloader/payloads/"
   echo "fusee.bin relocated from output root to payloads."
@@ -185,14 +197,14 @@ else
   echo "Warning: fusee.bin not found."
 fi
 
-# -------------------------------------------
-### 写入配置文件 到目标目录下
-# -------------------------------------------
+# =========================================================
+# --- 第五阶段：条件写入定制化配置文件 ---
+# =========================================================
 
-### Write hekate_ipl.ini
-echo "Writing hekate_ipl.ini..."
-mkdir -p "$OUTPUT_DIR/bootloader"
-cat > "$OUTPUT_DIR/bootloader/hekate_ipl.ini" << ENDOFFILE
+### Write hekate_ipl.ini (仅当集成了 Hekate 时才重写配置)
+if [[ -d "$OUTPUT_DIR/bootloader" ]]; then
+  echo "Writing hekate_ipl.ini..."
+  cat > "$OUTPUT_DIR/bootloader/hekate_ipl.ini" << ENDOFFILE
 [config]
 autoboot=0
 autoboot_list=0
@@ -213,7 +225,8 @@ stock=1
 emummc_force_disable=1
 icon=bootloader/res/icon_switch.bmp
 ENDOFFILE
-echo "Done!"
+  echo "Done!"
+fi
 
 # -------------------------------------------
 
@@ -237,9 +250,10 @@ echo "Done!"
 # -------------------------------------------
 
 ### Write default.txt
-echo "Writing default.txt..."
-mkdir -p "$OUTPUT_DIR/atmosphere/hosts"
-cat > "$OUTPUT_DIR/atmosphere/hosts/default.txt" << ENDOFFILE
+if [[ -d "$OUTPUT_DIR/atmosphere" ]]; then
+  echo "Writing default.txt..."
+  mkdir -p "$OUTPUT_DIR/atmosphere/hosts"
+  cat > "$OUTPUT_DIR/atmosphere/hosts/default.txt" << ENDOFFILE
 # Block Nintendo Servers
 127.0.0.1 *nintendo.*
 127.0.0.1 *nintendo-europe.com
@@ -247,26 +261,30 @@ cat > "$OUTPUT_DIR/atmosphere/hosts/default.txt" << ENDOFFILE
 95.216.149.205 *conntest.nintendowifi.net
 95.216.149.205 *ctest.cdn.nintendo.net
 ENDOFFILE
-echo "Done!"
+  echo "Done!"
+fi
 
 # -------------------------------------------
 
-### Write sys-patch config.ini
-echo "Writing sys-patch config.ini..."
-cat > "$OUTPUT_DIR/config/sys-patch/config.ini" << ENDOFFILE
+### Write sys-patch config.ini (仅当集成了 Sigpatches 且创建了配置路径时执行)
+if [[ -d "$OUTPUT_DIR/config/sys-patch" && -f "$OUTPUT_DIR/switch/sys-patch.nro" || -n "$SIGPATCHES_URL" ]]; then
+  echo "Writing sys-patch config.ini..."
+  cat > "$OUTPUT_DIR/config/sys-patch/config.ini" << ENDOFFILE
 [options]
 patch_sysmmc=0   ; 1=(default) patch sysmmc, 0=don't patch sysmmc
 patch_emummc=1   ; 1=(default) patch emummc, 0=don't patch emummc
 enable_logging=1 ; 1=(default) output /config/sys-patch/log.ini 0=no log
 version_skip=1   ; 1=(default) skips out of date patterns, 0=search all patterns
 ENDOFFILE
-echo "Done!"
+  echo "Done!"
+fi
 
 # -------------------------------------------
 
-### Write sphaira / ftpsrv config.ini
-echo "Writing ftpsrv config.ini..."
-cat > "$OUTPUT_DIR/config/ftpsrv/config.ini" << ENDOFFILE
+### Write sphaira / ftpsrv config.ini (仅当集成了 Sphaira 并在顶部定义了变量时才写入配置)
+if [[ -n "$SPHAIRA_URL" ]]; then
+  echo "Writing ftpsrv config.ini..."
+  cat > "$OUTPUT_DIR/config/ftpsrv/config.ini" << ENDOFFILE
 ##########
 # sphaira and ftpsrv#
 ##########
@@ -303,18 +321,21 @@ log = 0
 led = 1
 skip_ascii_convert = 0
 ENDOFFILE
-echo "Done!"
+  echo "Done!"
+fi
 
 # -------------------------------------------
 
-### Write atmosphere system_settings.ini (Disable cheats by default)
-echo "Writing atmosphere system_settings.ini..."
-cat > "$OUTPUT_DIR/atmosphere/system_settings.ini" << ENDOFFILE
+### Write atmosphere system_settings.ini (仅当集成了大记层核心时写入系统预设)
+if [[ -d "$OUTPUT_DIR/atmosphere" ]]; then
+  echo "Writing atmosphere system_settings.ini..."
+  cat > "$OUTPUT_DIR/atmosphere/system_settings.ini" << ENDOFFILE
 [atmosphere]
 dmnt_cheats_enabled_by_default = u8!0x0
 ENDOFFILE
-echo "Done!"
+  echo "Done!"
+fi
 
 # -------------------------------------------
 
-echo "Success! Your Switch SD card structure (including aio-switch-updater) is beautifully prepared in '$OUTPUT_DIR'!"
+echo "Success! Your modular Switch SD card structure is beautifully prepared in '$OUTPUT_DIR'!"
