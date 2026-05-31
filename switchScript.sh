@@ -2,7 +2,7 @@
 
 ### Credit to the Authors at https://rentry.org/CFWGuides
 ### Script created by Fraxalotl
-### Modified for unified API download, path fixes, custom output directory, .nro/.ovl support, direct download URL support, separate fusee.bin fetching, and Full Conditional Modularization
+### Modified for unified API download, path fixes, custom output directory, .nro/.ovl support, direct download URL support, separate fusee.bin fetching, and Absolute Atmosphere Core Dominance (Fixing Version Downgrade Trap)
 
 # -------------------------------------------
 # 定义基础 Release URL 变量（注释掉或删掉某一行即可完全跳过该组件）
@@ -138,9 +138,7 @@ download_latest_asset() {
 # 1. 核心解压组件队列
 [[ -n "$HEKATE_URL" ]] && download_latest_asset "$HEKATE_URL" "hekate.zip"
 [[ -n "$ATMOSPHERE_URL" ]] && download_latest_asset "$ATMOSPHERE_URL" "atmosphere.zip"
-# 【新增】：显式提取并下载大层官方发布资产里的核心注入 Payload 引导文件 fusee.bin
 [[ -n "$ATMOSPHERE_URL" ]] && download_latest_asset "$ATMOSPHERE_URL" "fusee.bin" ".bin"
-
 [[ -n "$SIGPATCHES_URL" ]] && download_latest_asset "$SIGPATCHES_URL" "sigpatches.zip"
 [[ -n "$MISSION_CONTROL_URL" ]] && download_latest_asset "$MISSION_CONTROL_URL" "missioncontrol.zip"
 [[ -n "$EDIZON_SE_URL" ]] && download_latest_asset "$EDIZON_SE_URL" "edizon-se.zip"
@@ -148,12 +146,12 @@ download_latest_asset() {
 [[ -n "$AIO_UPDATER_URL" ]] && download_latest_asset "$AIO_UPDATER_URL" "aio-switch-updater.zip"
 [[ -n "$ULTRAHAND_OVERLAY_URL" ]] && download_latest_asset "$ULTRAHAND_OVERLAY_URL" "sdout.zip"
 
-# 2. 独立单文件组件队列 (.nro / .ovl 格式直接重命名归档)
+# 2. 独立单文件组件队列
 [[ -n "$AKIRA_URL" ]] && download_latest_asset "$AKIRA_URL" "$OUTPUT_DIR/switch/akira.nro" ".nro"
 [[ -n "$DBI_URL" ]] && download_latest_asset "$DBI_URL" "$OUTPUT_DIR/switch/DBI/DBI.nro" ".nro"
 [[ -n "$NX_SHELL_URL" ]] && download_latest_asset "$NX_SHELL_URL" "$OUTPUT_DIR/switch/NX-Shell.nro" ".nro"
 
-# 3. 自定义非 GitHub 组件：MigDumpTool 动态解析与保底判定
+# 3. 自定义非 GitHub 组件：MigDumpTool
 if [[ -n "$MIG_DUMP_PAGE_URL" ]]; then
   echo "Processing MigDumpTool.nro..."
   MIG_DUMP_REAL_URL=$(curl -sL --connect-timeout 5 "$MIG_DUMP_PAGE_URL" | grep -o 'https://migflash.com/downloads/MigDumpTool-[^"]*\.nro' | head -n 1)
@@ -165,29 +163,29 @@ if [[ -n "$MIG_DUMP_PAGE_URL" ]]; then
 
   echo "Downloading MigDumpTool from: $MIG_DUMP_REAL_URL"
   curl -sLf "$MIG_DUMP_REAL_URL" -o "$OUTPUT_DIR/switch/MigDumpTool/MigDumpTool.nro"
-
-  if [[ $? -eq 0 ]]; then
-    echo "MigDumpTool.nro downloaded successfully."
-  else
-    echo "Error: Failed to download MigDumpTool. Please check your network connection."
-  fi
 fi
 
 # =========================================================
-# --- 第二阶段：条件判定解压 Packages 到目标目录 ---
+# --- 第二阶段：【重构】无损合并与核心覆盖解压 ---
 # =========================================================
 
 echo "Unzipping Packages into $OUTPUT_DIR..."
+# 物理抹除老旧残存目录
 rm -rf "$OUTPUT_DIR/bootloader" "$OUTPUT_DIR/atmosphere"
 
+# 1. 首先：解压引导器与所有可能含有潜在老旧大层组件的第三方扩展包
 [[ -f "hekate.zip" ]] && unzip -u hekate.zip -d "$OUTPUT_DIR"
-[[ -f "atmosphere.zip" ]] && unzip -u atmosphere.zip -d "$OUTPUT_DIR"
 [[ -f "sigpatches.zip" ]] && unzip -u sigpatches.zip -d "$OUTPUT_DIR"
 [[ -f "missioncontrol.zip" ]] && unzip -u missioncontrol.zip -d "$OUTPUT_DIR"
 [[ -f "edizon-se.zip" ]] && unzip -u edizon-se.zip -d "$OUTPUT_DIR"
 [[ -f "sphaira.zip" ]] && unzip -u sphaira.zip -d "$OUTPUT_DIR"
 [[ -f "aio-switch-updater.zip" ]] && unzip -u aio-switch-updater.zip -d "$OUTPUT_DIR"
 [[ -f "sdout.zip" ]] && unzip -u sdout.zip -d "$OUTPUT_DIR"
+
+# 2. 最后：强行、无条件解压官方大层核心组件！
+# 使用 -o 参数彻底剥夺任何第三方包的抢跑特权，确保 1.11.1 核心数据拥有最高统治地位
+[[ -f "atmosphere.zip" ]] && unzip -o atmosphere.zip -d "$OUTPUT_DIR"
+
 echo "Unzip Stage Done!"
 
 # =========================================================
@@ -203,7 +201,6 @@ echo "Cleanup Stage Done!"
 # =========================================================
 mkdir -p "$OUTPUT_DIR/bootloader/payloads"
 
-# 判定如果当前脚本根目录下被成功拉取下来了官方的 fusee.bin，将其剪切移动到指定 payloads 归档路径下
 if [[ -f "fusee.bin" ]]; then
   if [[ "$OSTYPE" == "msys" ]]; then
     move fusee.bin "$OUTPUT_DIR/bootloader/payloads/"
@@ -222,7 +219,7 @@ fi
 # --- 第五阶段：条件写入定制化配置文件 ---
 # =========================================================
 
-### Write hekate_ipl.ini
+### Write hekate_ipl.ini (全面适配现代推荐标准语法)
 if [[ -d "$OUTPUT_DIR/bootloader" ]]; then
   echo "Writing hekate_ipl.ini..."
   cat > "$OUTPUT_DIR/bootloader/hekate_ipl.ini" << ENDOFFILE
@@ -236,11 +233,16 @@ autonogc=1
 updater2p=0
 bootprotect=0
 
-[Atmosphere CFW]
-payload=bootloader/payloads/fusee.bin
+[CFW - emuMMC]
+fss0=atmosphere/package3
 icon=bootloader/res/icon_payload.bmp
 
-[Stock SysNAND]
+[CFW - SysNAND Safety Mode]
+fss0=atmosphere/package3
+emummc_force_disable=1
+icon=bootloader/res/icon_switch.bmp
+
+[Stock - Pure Official]
 fss0=atmosphere/package3
 stock=1
 emummc_force_disable=1
@@ -251,7 +253,7 @@ fi
 
 # -------------------------------------------
 
-### write exosphere.ini
+### write exosphere.ini (两端同步空白化，全方位绕过硬件 CAL0 校验死锁)
 echo "Writing exosphere.ini..."
 cat > "$OUTPUT_DIR/exosphere.ini" << ENDOFFILE
 [exosphere]
@@ -259,7 +261,7 @@ debugmode=1
 debugmode_user=0
 disable_user_exception_handlers=0
 enable_user_pmu_access=0
-blank_prodinfo_sysmmc=0
+blank_prodinfo_sysmmc=1
 blank_prodinfo_emummc=1
 allow_writing_to_cal_sysmmc=0
 log_port=0
@@ -292,10 +294,10 @@ if [[ -d "$OUTPUT_DIR/config/sys-patch" && -f "$OUTPUT_DIR/switch/sys-patch.nro"
   echo "Writing sys-patch config.ini..."
   cat > "$OUTPUT_DIR/config/sys-patch/config.ini" << ENDOFFILE
 [options]
-patch_sysmmc=0   ; 1=(default) patch sysmmc, 0=don't patch sysmmc
-patch_emummc=1   ; 1=(default) patch emummc, 0=don't patch emummc
-enable_logging=1 ; 1=(default) output /config/sys-patch/log.ini 0=no log
-version_skip=1   ; 1=(default) skips out of date patterns, 0=search all patterns
+patch_sysmmc=0
+patch_emummc=1
+enable_logging=1
+version_skip=1
 ENDOFFILE
   echo "Done!"
 fi
@@ -309,11 +311,6 @@ if [[ -n "$SPHAIRA_URL" ]]; then
 ##########
 # sphaira and ftpsrv#
 ##########
-
-#######################################################################
-# Rename config.ini.template to config.ini for changes to take effect.#
-#######################################################################
-
 [Login]
 anon = 1
 user = ""
@@ -349,5 +346,15 @@ ENDOFFILE
 fi
 
 # -------------------------------------------
+### Write stratosphere.ini (锁定卡槽驱动保护，防止 SysNAND 暴毙)
+if [[ -d "$OUTPUT_DIR/atmosphere" ]]; then
+  echo "Writing stratosphere.ini..."
+  mkdir -p "$OUTPUT_DIR/atmosphere/config"
+  cat > "$OUTPUT_DIR/atmosphere/config/stratosphere.ini" << ENDOFFILE
+[stratosphere]
+nogc = 1
+ENDOFFILE
+  echo "Done!"
+fi
 
 echo "Success! Your modular Switch SD card structure is beautifully prepared in '$OUTPUT_DIR'!"
