@@ -2,9 +2,16 @@
 
 ### Credit to the Authors at https://rentry.org/CFWGuides
 ### Script created by Fraxalotl
+### Modified for unified API download and path fixes
 
 # -------------------------------------------
+# 定义基础 Release URL 变量（统一使用标准官方 Release 首页）
+# -------------------------------------------
+HEKATE_URL="https://github.com/CTCaer/hekate/releases/latest"
+ATMOSPHERE_URL="https://github.com/Atmosphere-NX/Atmosphere/releases/latest"
+SIGPATCHES_URL="https://github.com/impeeza/sys-patch/releases/latest"
 
+# -------------------------------------------
 ### Install jq if not already installed
 if [[ "$OSTYPE" == "msys" ]]; then
   # Windows
@@ -17,57 +24,79 @@ elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
   # linux
   sudo apt-get install jq
 fi;
-  
-### Fetch latest Hekate + Nyx from https://github.com/CTCaer/hekate/releases/latest/
-echo Downloading Hekate...
-curl -sL https://api.github.com/repos/CTCaer/hekate/tags \
-  | jq -r '.[0].zipball_url' \
-  | xargs -I {} curl -sL {} -o hekate.zip
-echo Done!
-
-### Fetch latest atmosphere from https://github.com/Atmosphere-NX/Atmosphere/releases/latest
-curl -sL https://api.github.com/repos/Atmosphere-NX/Atmosphere/tags \
-  | jq -r '.[0].zipball_url' \
-  | xargs -I {} curl -sL {} -o atmosphere.zip
-echo Done!
-
-### Fetch latest SigPatches.zip from https://github.com/ITotalJustice/patches/releases/latest
-echo Downloading Sigpatches...
-curl -sL https://jits.cc/patches -o sigpatches.zip;
-echo Done!
 
 # -------------------------------------------
+### 统一的 API 下载函数
+# -------------------------------------------
+download_latest_asset() {
+  local repo_url=$1
+  local output_name=$2
+  echo "Processing $output_name..."
+  
+  # 将标准 GitHub URL 转换为 API URL
+  local api_url=$(echo "$repo_url" | sed 's|github.com|api.github.com/repos|')
+  
+  # 请求 API 并精准抓取第一个满足条件的 .zip 资产下载链接
+  local download_url=$(curl -sL "$api_url" | jq -r '.assets[] | select(.name | endswith(".zip")) | .browser_download_url' | head -n 1)
+  
+  if [[ -z "$download_url" || "$download_url" == "null" ]]; then
+    echo "Error: Failed to fetch download URL for $output_name"
+    return 1
+  fi
+  
+  echo "Downloading from: $download_url"
+  curl -sL "$download_url" -o "$output_name"
+  echo "$output_name downloaded successfully."
+}
 
+# 执行统一构建下载
+download_latest_asset "$HEKATE_URL" "hekate.zip"
+download_latest_asset "$ATMOSPHERE_URL" "atmosphere.zip"
+download_latest_asset "$SIGPATCHES_URL" "sigpatches.zip"
+
+# -------------------------------------------
 ### Unzip Downloaded Packages
 
-echo Unzipping Zips...
+echo "Unzipping Zips..."
+# 提前清理可能影响解压的旧目录，确保全新覆盖更新
+rm -rf bootloader atmosphere
 unzip -u hekate.zip
-unzip -u atomsphere.zip
+unzip -u atmosphere.zip
 unzip -u sigpatches.zip
-echo Done!
+echo "Done!"
 
 ### Cleanup Downloaded Zips
 
-echo Cleaning up...
-rm hekate.zip
-rm atmosphere.zip
-rm sigpatches.zip
-echo Done!
-
-
-### Place fusee.bin in /bootloader/payloads/
-if [[ "$OSTYPE" == "msys" ]]; then
-  move fusee.bin /bootloader/payloads
-else
-  mv fusee.bin /bootloader/payloads
-fi;
+echo "Cleaning up zip files..."
+rm -f hekate.zip
+rm -f atmosphere.zip
+rm -f sigpatches.zip
+echo "Done!"
 
 # -------------------------------------------
+### 移动 fusee.bin (修复路径并增加防御性容错)
+# -------------------------------------------
+mkdir -p bootloader/payloads
 
-### Write hekate_ipl.ini in /bootloader/ directory
-echo Writing hekate_ipl.ini in /bootloader/ directory...
-mkdir -p /bootloader
-cat > /bootloader/hekate_ipl.ini << ENDOFFILE
+if [[ -f "fusee.bin" ]]; then
+  if [[ "$OSTYPE" == "msys" ]]; then
+    move fusee.bin bootloader/payloads/
+  else
+    mv fusee.bin bootloader/payloads/
+  fi
+  echo "fusee.bin moved to bootloader/payloads/"
+else
+  echo "Warning: fusee.bin not found in root. Checking if it is already in place or misplaced..."
+fi
+
+# -------------------------------------------
+### 写入配置文件 (全部修正为相对路径，去掉开头的 '/')
+# -------------------------------------------
+
+### Write hekate_ipl.ini in bootloader/ directory
+echo "Writing hekate_ipl.ini in bootloader/ directory..."
+mkdir -p bootloader
+cat > bootloader/hekate_ipl.ini << ENDOFFILE
 [config]
 autoboot=0
 autoboot_list=0
@@ -88,13 +117,13 @@ stock=1
 emummc_force_disable=1
 icon=bootloader/res/icon_switch.bmp
 ENDOFFILE
-echo Done!
+echo "Done!"
 
 # -------------------------------------------
 
 ### write exosphere.ini in root of SD Card
-echo Writing exosphere.ini in root of SD card...
-cat > /exosphere.ini << ENDOFFILE
+echo "Writing exosphere.ini..."
+cat > exosphere.ini << ENDOFFILE
 [exosphere]
 debugmode=1
 debugmode_user=0
@@ -107,14 +136,14 @@ log_port=0
 log_baud_rate=115200
 log_inverted=0
 ENDOFFILE
-echo Done!
+echo "Done!"
 
 # -------------------------------------------
 
-### Write default.txt in /atmosphere/hosts
-echo Writing default.txt in /atmosphere/hosts
-mkdir -p /atmosphere/hosts
-cat > /atmosphere/hosts/default.txt << ENDOFFILE
+### Write default.txt in atmosphere/hosts
+echo "Writing default.txt in atmosphere/hosts..."
+mkdir -p atmosphere/hosts
+cat > atmosphere/hosts/default.txt << ENDOFFILE
 # Block Nintendo Servers
 127.0.0.1 *nintendo.*
 127.0.0.1 *nintendo-europe.com
@@ -122,8 +151,8 @@ cat > /atmosphere/hosts/default.txt << ENDOFFILE
 95.216.149.205 *conntest.nintendowifi.net
 95.216.149.205 *ctest.cdn.nintendo.net
 ENDOFFILE
-echo Done!
+echo "Done!"
 
 # -------------------------------------------
 
-echo Your Switch SD card is prepared!
+echo "Your Switch SD card directory structure is prepared in the current folder!"
