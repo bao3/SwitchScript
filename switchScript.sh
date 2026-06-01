@@ -2,7 +2,7 @@
 
 ### Credit to the Authors at https://rentry.org/CFWGuides
 ### Script created by Fraxalotl
-### Modified for unified API download, path fixes, custom output directory, .nro/.ovl support, direct download URL support, separate fusee.bin fetching, Absolute Atmosphere Core Dominance, Sub-INI Menu Extension, and Isolated emuMMC DNS Blocking
+### Modified for unified API download, path fixes, custom output directory, .nro/.ovl support, direct download URL support, separate fusee.bin fetching, Absolute Atmosphere Core Dominance, Sub-INI Menu Extension, Isolated emuMMC DNS Blocking, and SysNAND Execution Fixes (Resolving nim/ns Crash)
 
 # -------------------------------------------
 # 定义基础 Release URL 变量（注释掉或删掉某一行即可完全跳过该组件）
@@ -167,11 +167,14 @@ if [[ -n "$MIG_DUMP_PAGE_URL" ]]; then
 fi
 
 # =========================================================
-# --- 第二阶段：无损合并与核心覆盖解压 ---
+# --- 第二阶段：无损合并与核心覆盖解压（强化清理逻辑） ---
 # =========================================================
 
 echo "Unzipping Packages into $OUTPUT_DIR..."
-rm -rf "$OUTPUT_DIR/bootloader" "$OUTPUT_DIR/atmosphere"
+# 强力格式化清除历史可能残留、引起两端冲突的陈旧非同名模块文件
+rm -rf "$OUTPUT_DIR/bootloader"
+rm -rf "$OUTPUT_DIR/atmosphere"
+rm -rf "$OUTPUT_DIR/config"
 
 # 1. 首先：解压引导器与所有第三方扩展包
 [[ -f "hekate.zip" ]] && unzip -u hekate.zip -d "$OUTPUT_DIR"
@@ -182,7 +185,7 @@ rm -rf "$OUTPUT_DIR/bootloader" "$OUTPUT_DIR/atmosphere"
 [[ -f "aio-switch-updater.zip" ]] && unzip -u aio-switch-updater.zip -d "$OUTPUT_DIR"
 [[ -f "sdout.zip" ]] && unzip -u sdout.zip -d "$OUTPUT_DIR"
 
-# 2. 最后：强行、无条件解压官方大层核心组件！（确保 1.11.1 拥有最高统治地位）
+# 2. 最后：强行、无条件解压官方大层核心组件！（实现 1.11.1 原生权威绝对覆盖）
 [[ -f "atmosphere.zip" ]] && unzip -o atmosphere.zip -d "$OUTPUT_DIR"
 
 echo "Unzip Stage Done!"
@@ -261,7 +264,7 @@ fi
 
 # -------------------------------------------
 
-### write exosphere.ini
+### write exosphere.ini（核心修正：SysNAND 设为 0，允许读取物理校准分区进行安全联网握手）
 echo "Writing exosphere.ini..."
 cat > "$OUTPUT_DIR/exosphere.ini" << ENDOFFILE
 [exosphere]
@@ -269,8 +272,8 @@ debugmode=1
 debugmode_user=0
 disable_user_exception_handlers=0
 enable_user_pmu_access=0
-blank_prodinfo_sysmmc=1
-blank_prodinfo_emummc=1
+blank_prodinfo_sysmmc=0   ; 【修复点】：真实系统不抹除物理证书，防止联网触发 nim 进程 2123-0011 异常暴毙
+blank_prodinfo_emummc=1   ; 虚拟系统继续强制内存序列号空白化，保证绝对离线防 ban
 allow_writing_to_cal_sysmmc=0
 log_port=0
 log_baud_rate=115200
@@ -280,7 +283,7 @@ echo "Done!"
 
 # -------------------------------------------
 
-### 【已修改】：创建仅在虚拟系统下生效的 emummc.txt，实现 DNS 局部隔离
+### 创建仅在虚拟系统下生效的 emummc.txt，实现 DNS 局部隔离
 if [[ -d "$OUTPUT_DIR/atmosphere" ]]; then
   echo "Writing emummc.txt (Strictly isolated DNS block for emuMMC)..."
   mkdir -p "$OUTPUT_DIR/atmosphere/hosts"
@@ -297,12 +300,12 @@ fi
 
 # -------------------------------------------
 
-### Write sys-patch config.ini
+### Write sys-patch config.ini（核心修正：两端同步注入，保护 SysNAND 的文件系统和核心驱动挂载）
 if [[ -d "$OUTPUT_DIR/config/sys-patch" && -f "$OUTPUT_DIR/switch/sys-patch.nro" || -n "$SIGPATCHES_URL" ]]; then
   echo "Writing sys-patch config.ini..."
   cat > "$OUTPUT_DIR/config/sys-patch/config.ini" << ENDOFFILE
 [options]
-patch_sysmmc=0
+patch_sysmmc=1   ; 【修复点】：为真实机身系统启用核心文件系统补丁，完美保护并对齐 nogc 卡槽驱动，杜绝 ns 进程 2011-0301 崩溃
 patch_emummc=1
 enable_logging=1
 version_skip=1
