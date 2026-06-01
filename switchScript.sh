@@ -2,7 +2,7 @@
 
 ### Credit to the Authors at https://rentry.org/CFWGuides
 ### Script created by Fraxalotl
-### Modified for unified API download, path fixes, custom output directory, .nro/.ovl support, direct download URL support, separate fusee.bin fetching, Absolute Atmosphere Core Dominance, Sub-INI Menu Extension, Isolated emuMMC DNS Blocking, and SysNAND Execution Fixes (Resolving nim/ns Crash)
+### Modified for unified API download, path fixes, custom output directory, .nro/.ovl support, direct download URL support, separate fusee.bin fetching, Absolute Atmosphere Core Dominance, Sub-INI Menu Extension, Isolated emuMMC DNS Blocking, SysNAND Execution Fixes, Sphaira Smart Relocation, and JKSV Integration
 
 # -------------------------------------------
 # 定义基础 Release URL 变量（注释掉或删掉某一行即可完全跳过该组件）
@@ -19,6 +19,8 @@ EDIZON_SE_URL="https://github.com/tomvita/EdiZon-SE/releases/latest"
 AIO_UPDATER_URL="https://github.com/HamletDuFromage/aio-switch-updater/releases/latest"
 NX_SHELL_URL="https://github.com/Tproc-labs/NX-Shell-21.0.0/releases/latest"
 ULTRAHAND_OVERLAY_URL="https://github.com/ppkantorski/Ultrahand-Overlay/releases/latest"
+# 【新增】：JKSV 官方最新发布版 URL
+JKSV_URL="https://github.com/J-D-K/JKSV/releases/latest"
 
 # MigFlash 官网下载页面 URL（不需要可以注释掉）
 MIG_DUMP_PAGE_URL="https://migflash.com/downloads/"
@@ -88,7 +90,7 @@ download_latest_asset() {
     fi
   fi
 
-  # 将标准 GitHub URL 转换为 API URL
+  # 将 standard GitHub URL 转换为 API URL
   local api_url=$(echo "$repo_url" | sed 's|github.com|api.github.com/repos|')
   local download_url=""
 
@@ -107,7 +109,7 @@ download_latest_asset() {
   elif [[ "$repo_url" == *"/Ultrahand-Overlay/"* ]]; then
     download_url=$(echo "$api_response" | jq -r 'try (.assets[] | select(.name | ascii_downcase == "sdout.zip") | .browser_download_url) catch null' | head -n 1)
   else
-    # 通用后缀筛选逻辑
+    # 通用后缀筛选逻辑（如 .zip, .nro, .ovl, .bin 等）
     download_url=$(echo "$api_response" | jq -r --arg ext "$extension" 'try (.assets[] | select(.name | ascii_downcase | endswith($ext | ascii_downcase)) | .browser_download_url) catch null' | head -n 1)
   fi
   
@@ -151,6 +153,8 @@ download_latest_asset() {
 [[ -n "$AKIRA_URL" ]] && download_latest_asset "$AKIRA_URL" "$OUTPUT_DIR/switch/akira.nro" ".nro"
 [[ -n "$DBI_URL" ]] && download_latest_asset "$DBI_URL" "$OUTPUT_DIR/switch/DBI/DBI.nro" ".nro"
 [[ -n "$NX_SHELL_URL" ]] && download_latest_asset "$NX_SHELL_URL" "$OUTPUT_DIR/switch/NX-Shell.nro" ".nro"
+# 【新增】：自动解析 JKSV 发布的最新 .nro 文件并直接存入 switch 目录下
+[[ -n "$JKSV_URL" ]] && download_latest_asset "$JKSV_URL" "$OUTPUT_DIR/switch/JKSV.nro" ".nro"
 
 # 3. 自定义非 GitHub 组件：MigDumpTool
 if [[ -n "$MIG_DUMP_PAGE_URL" ]]; then
@@ -167,25 +171,46 @@ if [[ -n "$MIG_DUMP_PAGE_URL" ]]; then
 fi
 
 # =========================================================
-# --- 第二阶段：无损合并与核心覆盖解压（强化清理逻辑） ---
+# --- 第二阶段：无损合并与核心覆盖解压 ---
 # =========================================================
 
 echo "Unzipping Packages into $OUTPUT_DIR..."
-# 强力格式化清除历史可能残留、引起两端冲突的陈旧非同名模块文件
 rm -rf "$OUTPUT_DIR/bootloader"
 rm -rf "$OUTPUT_DIR/atmosphere"
 rm -rf "$OUTPUT_DIR/config"
 
-# 1. 首先：解压引导器与所有第三方扩展包
+# 1. 首先：解压引导器与常规第三方扩展包
 [[ -f "hekate.zip" ]] && unzip -u hekate.zip -d "$OUTPUT_DIR"
 [[ -f "sigpatches.zip" ]] && unzip -u sigpatches.zip -d "$OUTPUT_DIR"
 [[ -f "missioncontrol.zip" ]] && unzip -u missioncontrol.zip -d "$OUTPUT_DIR"
 [[ -f "edizon-se.zip" ]] && unzip -u edizon-se.zip -d "$OUTPUT_DIR"
-[[ -f "sphaira.zip" ]] && unzip -u sphaira.zip -d "$OUTPUT_DIR"
 [[ -f "aio-switch-updater.zip" ]] && unzip -u aio-switch-updater.zip -d "$OUTPUT_DIR"
 [[ -f "sdout.zip" ]] && unzip -u sdout.zip -d "$OUTPUT_DIR"
 
-# 2. 最后：强行、无条件解压官方大层核心组件！（实现 1.11.1 原生权威绝对覆盖）
+# 2. 【重构点】：Sphaira 智能沙盒解压归位机制
+# 创建隔离过渡目录解压，无视作者打包层级干扰，精准提取并合流至正确 switch 目录下
+if [[ -f "sphaira.zip" ]]; then
+  echo "Activating Sphaira Smart Relocation Sandbox Mode..."
+  mkdir -p "sphaira_tmp"
+  unzip -o sphaira.zip -d "sphaira_tmp"
+  if [[ -f "sphaira_tmp/sphaira.nro" ]]; then
+    mkdir -p "$OUTPUT_DIR/switch/sphaira"
+    mv "sphaira_tmp/sphaira.nro" "$OUTPUT_DIR/switch/sphaira/"
+  elif [[ -d "sphaira_tmp/sphaira" ]]; then
+    mkdir -p "$OUTPUT_DIR/switch"
+    cp -r "sphaira_tmp/sphaira" "$OUTPUT_DIR/switch/"
+  elif [[ -d "sphaira_tmp/switch/sphaira" ]]; then
+    mkdir -p "$OUTPUT_DIR/switch"
+    cp -r "sphaira_tmp/switch/sphaira" "$OUTPUT_DIR/switch/"
+  else
+    mkdir -p "$OUTPUT_DIR/switch/sphaira"
+    cp -r sphaira_tmp/* "$OUTPUT_DIR/switch/sphaira/" 2>/dev/null
+  fi
+  rm -rf "sphaira_tmp"
+  echo "Sphaira intelligently relocated into $OUTPUT_DIR/switch/"
+fi
+
+# 3. 最后：强行、无条件解压官方大层核心组件！（实现 1.11.1 原生权威绝对覆盖）
 [[ -f "atmosphere.zip" ]] && unzip -o atmosphere.zip -d "$OUTPUT_DIR"
 
 echo "Unzip Stage Done!"
@@ -264,7 +289,7 @@ fi
 
 # -------------------------------------------
 
-### write exosphere.ini（核心修正：SysNAND 设为 0，允许读取物理校准分区进行安全联网握手）
+### write exosphere.ini
 echo "Writing exosphere.ini..."
 cat > "$OUTPUT_DIR/exosphere.ini" << ENDOFFILE
 [exosphere]
@@ -272,8 +297,8 @@ debugmode=1
 debugmode_user=0
 disable_user_exception_handlers=0
 enable_user_pmu_access=0
-blank_prodinfo_sysmmc=0   ; 【修复点】：真实系统不抹除物理证书，防止联网触发 nim 进程 2123-0011 异常暴毙
-blank_prodinfo_emummc=1   ; 虚拟系统继续强制内存序列号空白化，保证绝对离线防 ban
+blank_prodinfo_sysmmc=0
+blank_prodinfo_emummc=1
 allow_writing_to_cal_sysmmc=0
 log_port=0
 log_baud_rate=115200
@@ -300,12 +325,12 @@ fi
 
 # -------------------------------------------
 
-### Write sys-patch config.ini（核心修正：两端同步注入，保护 SysNAND 的文件系统和核心驱动挂载）
+### Write sys-patch config.ini
 if [[ -d "$OUTPUT_DIR/config/sys-patch" && -f "$OUTPUT_DIR/switch/sys-patch.nro" || -n "$SIGPATCHES_URL" ]]; then
   echo "Writing sys-patch config.ini..."
   cat > "$OUTPUT_DIR/config/sys-patch/config.ini" << ENDOFFILE
 [options]
-patch_sysmmc=1   ; 【修复点】：为真实机身系统启用核心文件系统补丁，完美保护并对齐 nogc 卡槽驱动，杜绝 ns 进程 2011-0301 崩溃
+patch_sysmmc=1
 patch_emummc=1
 enable_logging=1
 version_skip=1
