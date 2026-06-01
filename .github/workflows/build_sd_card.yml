@@ -23,14 +23,29 @@ jobs:
         with:
           persist-credentials: true # 保持认证凭证，供后续 Git Push 阶段使用
 
-      # 第二步：初始化系统依赖环境（由于 Bash 脚本内含自动安装 jq 机制，此步作为双重保险）
+      # 第二步：初始化系统依赖环境
       - name: Initialize Environment Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y jq unzip curl
+          sudo apt-get install -y jq unzip curl zip
 
-      # 第三步：执行核心构建脚本
-      # 在原生 GitHub Actions 环境中，${{ secrets.GITHUB_TOKEN }} 会被自动无缝注入
+      # 第三步：【新增】动态获取 Atmosphere 的最新版本号
+      # 使用 GITHUB_TOKEN 鉴权请求 API，防止触发 GitHub 的 Rate Limit（频率限制）
+      - name: Fetch Atmosphere Version Tag
+        id: ams_env
+        run: |
+          AMS_TAG=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" https://api.github.com/repos/Atmosphere-NX/Atmosphere/releases/latest | jq -r '.tag_name')
+          
+          # 容错处理：如果 API 请求异常，则使用当前日期作为保底版本号
+          if [ -z "$AMS_TAG" ] || [ "$AMS_TAG" == "null" ]; then
+            AMS_TAG=$(date +'%Y%m%d')
+          fi
+          
+          # 将版本号写入 GitHub Actions 的全局输出变量中
+          echo "version=${AMS_TAG}" >> $GITHUB_OUTPUT
+          echo "==> Successfully tracked Atmosphere Version: ${AMS_TAG}"
+
+      # 第四步：执行核心构建脚本
       - name: Execute Core Switch Script
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -38,60 +53,46 @@ jobs:
           chmod +x ./switchScript.sh
           ./switchScript.sh
 
-      # 第四步：在云端将生成的文件夹压缩为 zip 包，准备用于 Release 发布
+      # 第五步：【已修改】在云端根据大层版本号进行动态命名压缩
       - name: Compress SD Card Folder
         run: |
           if [ -d "./NS SD Card" ]; then
             cd "./NS SD Card"
-            # 将目录下的所有内容打包为 NS-SD-Card-Structure.zip
-            zip -r ../NS-SD-Card-Structure.zip ./*
+            # 引入动态变量，打包命名为如：NS-SD-Card-Atmosphere-1.11.1.zip
+            zip -r ../NS-SD-Card-Atmosphere-${{ steps.ams_env.outputs.version }}.zip ./*
             cd ..
-            echo "==> Success: Folder compressed into NS-SD-Card-Structure.zip"
+            echo "==> Success: Folder compressed into NS-SD-Card-Atmosphere-${{ steps.ams_env.outputs.version }}.zip"
           else
             echo "Error: Target directory './NS SD Card' not found!"
             exit 1
           fi
 
-      # 第五步：自动创建/覆盖更新仓库的 GitHub Release (latest)
-      # 每次运行都会将最新的压缩包推送到你仓库的 Releases 页面中，并固定命名为 latest
-      - name: Update GitHub Release (latest)
+      # 第六步：【已修改】自动创建/更新对应版本号的 GitHub Release 归档
+      - name: Update GitHub Release
         uses: ncipollo/release-action@v1
         with:
-          artifacts: "NS-SD-Card-Structure.zip" # 要发布的文件
-          tag: "latest"                           # 固定的 Release 标签
-          name: "Nintendo Switch SD Card Latest Build"
+          artifacts: "NS-SD-Card-Atmosphere-${{ secrets.GITHUB_TOKEN && steps.ams_env.outputs.version }}.zip" 
+          tag: "${{ steps.ams_env.outputs.version }}" # 将 Tag 改为版本号（如 1.11.1），大层更新时会自动生成新 Releases 历史
+          name: "Nintendo Switch SD Card Build - Atmosphere ${{ steps.ams_env.outputs.version }}"
           body: |
             Automated build generated on $(date -u +"%Y-%m-%d %H:%M:%S UTC").
-            Contains latest integration of Atmosphere, Hekate, Sigpatches, and sys-modules.
-          allowUpdates: true                      # 允许覆盖已有版本
-          removeArtifacts: true                   # 覆盖时移除旧文件
-          replacesArtifacts: true                 # 替换同名资产文件
-          makeLatest: true                        # 强制将其设为仓库的最新的 Release
+            Contains latest integration of Atmosphere ${{ steps.ams_env.outputs.version }}, Hekate, Sigpatches, and sys-modules.
+          allowUpdates: true                      # 如果同一版本重复运行，允许覆盖更新
+          removeArtifacts: false                  # 不移除历史版本的发布包
+          replacesArtifacts: true                 # 同版本重复构建时替换同名资产
+          makeLatest: true                        # 始终将最新的大层版本设为仓库的 "Latest" 标签
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      # 第六步：自动化“内核续命”防御机制（彻底解决 60 天无 Commit 导致自动化暂停的痛点）
-      # 原理：每次脚本成功跑完，都会强制更新本地的一个时间戳文件并自动 Push 推送回仓库。
-      # 从而在 GitHub 看来，该仓库永远处于活跃迭代状态，实现 Actions 永久不灭。
+      # 第七步：自动化“内核续命”防御机制
       - name: Automated Keep-Alive Self-Commit
         run: |
-          # 向防休眠标记文件写入当前运行时的标准 ISO 时间戳
           date -u +"%Y-%m-%d %H:%M:%S UTC" > .github/workflow_keep_alive.txt
-          
-          # 检查文件是否确实发生了变化，避免无意义的重复 Commit 报错
           if ! git diff --exit-code .github/workflow_keep_alive.txt; then
             echo "==> Detection: Repository freeze detected. Initiating keep-alive deployment..."
-            
-            # 配置 GitHub 官方 Actions 机器人的全局身份
             git config --local user.email "github-actions[bot]@users.noreply.github.com"
             git config --local user.name "github-actions[bot]"
-            
-            # 暂存并提交变更
             git add .github/workflow_keep_alive.txt
-            
-            # [skip ci] 极为关键：它指示 GitHub 在接受此 Commit 时，绝对不要再次引发循环构建
             git commit -m "chore: workflow auto-maintenance heartbeat [skip ci]"
-            
-            # 推送回主分支
             git push origin HEAD:${{ github.ref_name }}
             echo "==> Success: Heartbeat pushed successfully. Action cooling-off period refreshed."
           else
