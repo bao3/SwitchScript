@@ -2,7 +2,7 @@
 
 ### Credit to the Authors at https://rentry.org/CFWGuides
 ### Script created by Fraxalotl
-### Modified for unified API download, path fixes, custom output directory, .nro/.ovl support, direct download URL support, separate fusee.bin fetching, Absolute Atmosphere Core Dominance, Sub-INI Menu Extension, Isolated emuMMC DNS Blocking, SysNAND Execution Fixes, Sphaira Smart Relocation, and JKSV Integration
+### Modified for unified API download, path fixes, custom output directory, .nro/.ovl support, direct download URL support, separate fusee.bin fetching, Absolute Atmosphere Core Dominance, Sub-INI Menu Extension, Isolated emuMMC DNS Blocking, SysNAND Execution Fixes, Sphaira Smart Relocation, JKSV Integration, and Typo/Redundancy Cleanup
 
 # -------------------------------------------
 # 定义基础 Release URL 变量（注释掉或删掉某一行即可完全跳过该组件）
@@ -13,13 +13,12 @@ SIGPATCHES_URL="https://github.com/impeeza/sys-patch/releases/latest"
 AKIRA_URL="https://github.com/xlanor/akira/releases/latest"
 MISSION_CONTROL_URL="https://github.com/ndeadly/MissionControl/releases/latest"
 DBI_URL="https://github.com/rashevskyv/dbi/releases/latest"
-# SPHAIRA 使用固定直连
-SPHAIRA_URL="https://github.com/ITTotalJustice/sphaira/releases/download/1.0.0/sphaira.zip"
+# 【已修正】：彻底修复作者名拼写错误（ITTotalJustice -> ITotalJustice）
+SPHAIRA_URL="https://github.com/ITotalJustice/sphaira/releases/download/1.0.0/sphaira.zip"
 EDIZON_SE_URL="https://github.com/tomvita/EdiZon-SE/releases/latest"
 AIO_UPDATER_URL="https://github.com/HamletDuFromage/aio-switch-updater/releases/latest"
 NX_SHELL_URL="https://github.com/Tproc-labs/NX-Shell-21.0.0/releases/latest"
 ULTRAHAND_OVERLAY_URL="https://github.com/ppkantorski/Ultrahand-Overlay/releases/latest"
-# 【新增】：JKSV 官方最新发布版 URL
 JKSV_URL="https://github.com/J-D-K/JKSV/releases/latest"
 
 # MigFlash 官网下载页面 URL（不需要可以注释掉）
@@ -76,7 +75,7 @@ download_latest_asset() {
   
   echo "Processing $(basename "$output_path")...."
   
-  # 如果传入的原本就是个已经包含 releases/download 的直链，直接下载并跳过 API 解析
+  # 【统一框架 - 直链判定】：如果传入的原本就是个已经包含 releases/download 的直链，直接下载并跳过 API 解析
   if [[ "$repo_url" == *"/releases/download/"* ]]; then
     echo "=> Notice: Direct download link provided. Skipping GitHub API parsing."
     echo "Downloading from direct link: $repo_url"
@@ -103,13 +102,11 @@ download_latest_asset() {
   # 拉取 API 核心 JSON 原始数据
   local api_response=$(curl "${auth_header[@]}" -sL "$api_url")
 
-  # 针对特定仓库订制硬性筛选规则（大小写模糊匹配）
-  if [[ "$repo_url" == *"/sphaira/"* ]]; then
-    download_url=$(echo "$api_response" | jq -r 'try (.assets[] | select(.name | ascii_downcase == "sphaira.zip") | .browser_download_url) catch null' | head -n 1)
-  elif [[ "$repo_url" == *"/Ultrahand-Overlay/"* ]]; then
+  # 【统一框架 - 核心清洗】：删除了针对 Sphaira 的冗余硬编码判断，完全由通用流与直链流接管
+  if [[ "$repo_url" == *"/Ultrahand-Overlay/"* ]]; then
     download_url=$(echo "$api_response" | jq -r 'try (.assets[] | select(.name | ascii_downcase == "sdout.zip") | .browser_download_url) catch null' | head -n 1)
   else
-    # 通用后缀筛选逻辑（如 .zip, .nro, .ovl, .bin 等）
+    # 通用后缀/资产类型筛选逻辑
     download_url=$(echo "$api_response" | jq -r --arg ext "$extension" 'try (.assets[] | select(.name | ascii_downcase | endswith($ext | ascii_downcase)) | .browser_download_url) catch null' | head -n 1)
   fi
   
@@ -153,7 +150,6 @@ download_latest_asset() {
 [[ -n "$AKIRA_URL" ]] && download_latest_asset "$AKIRA_URL" "$OUTPUT_DIR/switch/akira.nro" ".nro"
 [[ -n "$DBI_URL" ]] && download_latest_asset "$DBI_URL" "$OUTPUT_DIR/switch/DBI/DBI.nro" ".nro"
 [[ -n "$NX_SHELL_URL" ]] && download_latest_asset "$NX_SHELL_URL" "$OUTPUT_DIR/switch/NX-Shell.nro" ".nro"
-# 【新增】：自动解析 JKSV 发布的最新 .nro 文件并直接存入 switch 目录下
 [[ -n "$JKSV_URL" ]] && download_latest_asset "$JKSV_URL" "$OUTPUT_DIR/switch/JKSV.nro" ".nro"
 
 # 3. 自定义非 GitHub 组件：MigDumpTool
@@ -187,8 +183,7 @@ rm -rf "$OUTPUT_DIR/config"
 [[ -f "aio-switch-updater.zip" ]] && unzip -u aio-switch-updater.zip -d "$OUTPUT_DIR"
 [[ -f "sdout.zip" ]] && unzip -u sdout.zip -d "$OUTPUT_DIR"
 
-# 2. 【重构点】：Sphaira 智能沙盒解压归位机制
-# 创建隔离过渡目录解压，无视作者打包层级干扰，精准提取并合流至正确 switch 目录下
+# 2. Sphaira 智能沙盒解压归位机制（精准提取到 switch 目录下，彻底解决由于缺乏父架构导致外流的 Bug）
 if [[ -f "sphaira.zip" ]]; then
   echo "Activating Sphaira Smart Relocation Sandbox Mode..."
   mkdir -p "sphaira_tmp"
@@ -210,7 +205,7 @@ if [[ -f "sphaira.zip" ]]; then
   echo "Sphaira intelligently relocated into $OUTPUT_DIR/switch/"
 fi
 
-# 3. 最后：强行、无条件解压官方大层核心组件！（实现 1.11.1 原生权威绝对覆盖）
+# 3. 最后：强行、无条件解压官方大层核心组件！（实现原生权威绝对覆盖）
 [[ -f "atmosphere.zip" ]] && unzip -o atmosphere.zip -d "$OUTPUT_DIR"
 
 echo "Unzip Stage Done!"
