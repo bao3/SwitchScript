@@ -2,7 +2,7 @@
 
 ### Credit to the Authors at https://rentry.org/CFWGuides
 ### Script created by Fraxalotl
-### Modified for unified API download, path fixes, custom output directory, .nro/.ovl support, direct download URL support, separate fusee.bin fetching, Absolute Atmosphere Core Dominance, Sub-INI Menu Extension, Isolated emuMMC DNS Blocking, SysNAND Execution Fixes, Sphaira Smart Relocation, JKSV Integration, and Typo/Redundancy Cleanup
+### Modified for unified API download, path fixes, custom output directory, .nro/.ovl support, direct download URL support, separate fusee.bin fetching, Absolute Atmosphere Core Dominance, Sub-INI Menu Extension, Isolated emuMMC DNS Blocking, SysNAND Execution Fixes, Sphaira Smart Relocation, JKSV Integration, Typo/Redundancy Cleanup, and Game Card Slot Unlock (nogc=0)
 
 # -------------------------------------------
 # 定义基础 Release URL 变量（注释掉或删掉某一行即可完全跳过该组件）
@@ -13,7 +13,7 @@ SIGPATCHES_URL="https://github.com/impeeza/sys-patch/releases/latest"
 AKIRA_URL="https://github.com/xlanor/akira/releases/latest"
 MISSION_CONTROL_URL="https://github.com/ndeadly/MissionControl/releases/latest"
 DBI_URL="https://github.com/rashevskyv/dbi/releases/latest"
-# 【已修正】：彻底修复作者名拼写错误（ITTotalJustice -> ITotalJustice）
+# SPHAIRA 使用固定直连（已修复作者名拼写）
 SPHAIRA_URL="https://github.com/ITotalJustice/sphaira/releases/download/1.0.0/sphaira.zip"
 EDIZON_SE_URL="https://github.com/tomvita/EdiZon-SE/releases/latest"
 AIO_UPDATER_URL="https://github.com/HamletDuFromage/aio-switch-updater/releases/latest"
@@ -102,7 +102,6 @@ download_latest_asset() {
   # 拉取 API 核心 JSON 原始数据
   local api_response=$(curl "${auth_header[@]}" -sL "$api_url")
 
-  # 【统一框架 - 核心清洗】：删除了针对 Sphaira 的冗余硬编码判断，完全由通用流与直链流接管
   if [[ "$repo_url" == *"/Ultrahand-Overlay/"* ]]; then
     download_url=$(echo "$api_response" | jq -r 'try (.assets[] | select(.name | ascii_downcase == "sdout.zip") | .browser_download_url) catch null' | head -n 1)
   else
@@ -183,7 +182,7 @@ rm -rf "$OUTPUT_DIR/config"
 [[ -f "aio-switch-updater.zip" ]] && unzip -u aio-switch-updater.zip -d "$OUTPUT_DIR"
 [[ -f "sdout.zip" ]] && unzip -u sdout.zip -d "$OUTPUT_DIR"
 
-# 2. Sphaira 智能沙盒解压归位机制（精准提取到 switch 目录下，彻底解决由于缺乏父架构导致外流的 Bug）
+# 2. Sphaira 智能沙盒解压归位机制
 if [[ -f "sphaira.zip" ]]; then
   echo "Activating Sphaira Smart Relocation Sandbox Mode..."
   mkdir -p "sphaira_tmp"
@@ -383,7 +382,8 @@ if [[ -d "$OUTPUT_DIR/atmosphere" ]]; then
   mkdir -p "$OUTPUT_DIR/atmosphere/config"
   cat > "$OUTPUT_DIR/atmosphere/config/stratosphere.ini" << ENDOFFILE
 [stratosphere]
-nogc = 1
+# 【已修改】：关闭大层硬编码卡槽拦截（改 1 为 0），将控制权交还 Hekate 动态防熔断保护，解除虚拟系统无法读取物理卡带的冲突
+nogc = 0
 ENDOFFILE
   echo "Done!"
 fi
