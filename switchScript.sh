@@ -87,10 +87,16 @@ ensure_jq() {
 }
 
 # GitHub API helpers. Uses GITHUB_TOKEN when set (Actions or local export).
-gh_auth_args() {
+# Always pass headers as array elements so "Bearer <token>" is one argv.
+curl_gh() {
+  local -a hdr=(
+    -H "User-Agent: bao3-SwitchScript"
+    -H "Accept: application/vnd.github+json"
+  )
   if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-    printf '%s\n' -H "Authorization: Bearer ${GITHUB_TOKEN}"
+    hdr+=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
   fi
+  curl "${hdr[@]}" "$@"
 }
 
 github_repo_from_url() {
@@ -113,11 +119,7 @@ resolve_latest_asset() {
 
   repo=$(github_repo_from_url "$url")
   api="https://api.github.com/repos/${repo}/releases/latest"
-  json=$(curl -fsSL --retry 2 --retry-delay 1 --retry-all-errors \
-    -H "Accept: application/vnd.github+json" \
-    -H "User-Agent: bao3-SwitchScript" \
-    $(gh_auth_args) \
-    "$api") || return 1
+  json=$(curl_gh -fsSL --retry 2 --retry-delay 1 --retry-all-errors "$api") || return 1
 
   echo "$json" | jq -r --arg f "$filter" '
     .assets
@@ -139,10 +141,8 @@ download_file() {
   fi
   mkdir -p "$(dirname "$dest")"
   log "Downloading $(basename "$dest")"
-  curl -fL --retry 2 --retry-delay 1 --retry-all-errors \
-    -H "User-Agent: bao3-SwitchScript" \
-    $(gh_auth_args) \
-    -o "$dest" "$src"
+  curl_gh -fL --retry 2 --retry-delay 1 --retry-all-errors -o "$dest" "$src"
+  [[ -s "$dest" ]] || { warn "empty download: $dest"; return 1; }
 }
 
 fetch_github_asset() {
@@ -175,7 +175,7 @@ unzip_into() {
     log "DRY-RUN: unzip $flags $zip -> $dest"
     return 0
   fi
-  unzip $flags "$zip" -d "$dest"
+  unzip -q $flags "$zip" -d "$dest"
 }
 
 # Place a zip that may be a raw nro, switch/<name>/, or nested folder.
