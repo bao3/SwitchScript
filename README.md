@@ -15,7 +15,7 @@ Comment out any `*_URL` in `switchScript.sh` to skip that component.
 
 - Hekate + Nyx, Atmosphere + fusee.bin, sys-patch
 - MissionControl, EdiZon-SE, Sphaira, AIO Switch Updater, Ultrahand Overlay
-- CyberFoil (`switch/CyberFoil/`), DBI, JKSV, Akira, NX-Shell, MigDumpTool
+- CyberFoil (`switch/CyberFoil/`) preloaded with the LAN AeroFoil remote; DBI, JKSV, Akira, NX-Shell, MigDumpTool
 - PackUpdater (`switch/PackUpdater/`) — download the latest GitHub zip on the Switch and extract it to the SD root
 - `hekate_ipl.ini`, `exosphere.ini`, emuMMC DNS block, stratosphere `nogc=0`
 

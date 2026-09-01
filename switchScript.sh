@@ -49,6 +49,13 @@ JKSV_URL="https://github.com/J-D-K/JKSV/releases/latest"
 CYBERFOIL_URL="https://github.com/luketanti/CyberFoil/releases/latest"
 MIG_DUMP_PAGE_URL="https://migflash.com/downloads/"
 
+# LAN AeroFoil shop baked into CyberFoil on the SD pack
+AEROFOIL_HOST="192.168.50.56"
+AEROFOIL_PORT="8465"
+AEROFOIL_USER="switch"
+AEROFOIL_PASS="install"
+AEROFOIL_TITLE="AeroFoil"
+
 # -------------------------------------------
 log()  { printf '==> %s\n' "$*"; }
 warn() { printf '!!  %s\n' "$*" >&2; }
@@ -410,6 +417,53 @@ write_text "$OUTPUT_DIR/atmosphere/config/stratosphere.ini" <<'ENDOFFILE'
 # 0 = do not hard-lock the game card slot; Hekate autonogc still protects burns
 nogc = 0
 ENDOFFILE
+
+# CyberFoil native layout (not base64): remotes/*.json + config.json
+# sdmc:/switch/CyberFoil/remotes/AeroFoil.json
+write_text "$OUTPUT_DIR/switch/CyberFoil/remotes/AeroFoil.json" <<EOF
+{
+    "remote": {
+        "protocol": "http",
+        "host": "${AEROFOIL_HOST}",
+        "path": "",
+        "port": ${AEROFOIL_PORT},
+        "username": "${AEROFOIL_USER}",
+        "password": "${AEROFOIL_PASS}",
+        "title": "${AEROFOIL_TITLE}",
+        "favourite": true,
+        "legacyMode": false
+    }
+}
+EOF
+
+write_text "$OUTPUT_DIR/switch/CyberFoil/config.json" <<EOF
+{
+    "remoteUrl": "http://${AEROFOIL_HOST}:${AEROFOIL_PORT}",
+    "remoteUser": "${AEROFOIL_USER}",
+    "remotePass": "${AEROFOIL_PASS}",
+    "remoteLegacyMode": false,
+    "httpUserAgentMode": "default",
+    "httpUserAgent": "",
+    "languageSetting": 99,
+    "autoUpdate": true,
+    "deletePrompt": true,
+    "ignoreReqVers": true,
+    "validateNCAs": true,
+    "overClock": true,
+    "usbAck": false,
+    "gayMode": true,
+    "soundEnabled": true,
+    "oledMode": true,
+    "mtpExposeAlbum": false,
+    "remoteHideInstalled": true,
+    "remoteHideInstalledSection": true,
+    "remoteHideIncompatibleCheats": false,
+    "remoteAllBaseOnly": true,
+    "remoteStartGridMode": false,
+    "offlineDbAutoCheckOnStartup": true,
+    "verboseInstallLogging": false
+}
+EOF
 
 # PackUpdater.nro is produced by CI; pick it up when present for local builds too.
 PACK_UPDATER_NRO="${PACK_UPDATER_NRO:-$WORKDIR/pack-updater/PackUpdater.nro}"
