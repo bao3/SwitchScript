@@ -10,7 +10,7 @@
 #include "json.h"
 #include "unzip.h"
 
-#define VERSION "1.3.0"
+#define VERSION "1.3.1"
 #define WORK_DIR "sdmc:/switch/PackUpdater"
 #define ZIP_PATH WORK_DIR "/update.zip"
 #define INSTALLED_PATH WORK_DIR "/installed.txt"
@@ -217,7 +217,7 @@ static void banner(const char *status) {
     printf("[+] quit\n");
     printf("\nThis overlays atmosphere/bootloader/switch from\n");
     printf("the pack. Nintendo/ and games are not touched.\n");
-    printf("B writes only PackUpdater.nro; quit and reopen to use it.\n");
+    printf("A does a full update in one shot. B is optional.\n");
 }
 
 static void redraw(const char *status) {
@@ -412,20 +412,6 @@ static int ensure_zip(PadState *pad) {
     return 0;
 }
 
-static int wait_extract_choice(PadState *pad) {
-    g_err[0] = 0;
-    redraw("A = extract all.  B = PackUpdater only.  + = abort.");
-    while (appletMainLoop()) {
-        padUpdate(pad);
-        u64 k = padGetButtonsDown(pad);
-        if (k & HidNpadButton_A) return 1;
-        if (k & HidNpadButton_B) return 2;
-        if (k & HidNpadButton_Plus) return 0;
-        consoleUpdate(NULL);
-    }
-    return 0;
-}
-
 static int do_self_update(PadState *pad) {
     if (!g_have_asset) {
         snprintf(g_err, sizeof g_err, "check GitHub first (press Y)");
@@ -514,24 +500,6 @@ static int do_update(PadState *pad) {
     if (ensure_zip(pad) != 0) {
         appletSetAutoSleepDisabled(false);
         return -1;
-    }
-
-    int choice = wait_extract_choice(pad);
-    if (choice == 0) {
-        appletSetAutoSleepDisabled(false);
-        redraw("Aborted. Zip kept.");
-        return -1;
-    }
-    if (choice == 2) {
-        if (extract_self_from_zip() != 0) {
-            appletSetAutoSleepDisabled(false);
-            redraw("Could not extract PackUpdater.nro.");
-            return -1;
-        }
-        appletSetAutoSleepDisabled(false);
-        g_err[0] = 0;
-        redraw("PackUpdater written. Zip kept. Press + then reopen, then A.");
-        return 0;
     }
 
     Pump p = {.pad = pad, .label = "Extracting", .abort = 0};

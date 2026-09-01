@@ -9,12 +9,9 @@ and extract it onto `sdmc:/`.
    (the daily zip already includes this folder).
 2. Open it from hbmenu. It checks GitHub Releases for
    `NS-SD-Card-Atmosphere-*.zip`.
-3. Press A to download. After the zip is ready you choose:
-   A = extract the full pack onto the SD root, or
-   B = write only `PackUpdater.nro` (quit with +, reopen, then A).
+3. Press A to download and extract onto the SD root in one shot.
    `Nintendo/` and game folders are never touched.
-4. From the main screen, B downloads just `PackUpdater.nro` (~1 MB) so you
-   can update the updater first without pulling the 60 MB pack.
+4. Optional: from the main screen, B writes only `PackUpdater.nro`.
 5. Press X to reboot when a full extract finishes.
 
 Tiny / empty releases are refused (must contain `atmosphere/package3` and
