@@ -4,6 +4,8 @@ repo = bao3/SwitchScript
 asset_prefix = NS-SD-Card-Atmosphere-
 extract_to = sdmc:/
 min_zip_mb = 10
+min_battery_pct = 20
+min_free_mb = 512
 # Cloudflare Worker GitHub file proxy (default). Empty = talk to github.com directly.
 gh_proxy = https://gh.heibang.club
 # HTTP CONNECT proxy — usually leave empty; Switch in CN should use gh_proxy.

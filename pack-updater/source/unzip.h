@@ -11,4 +11,4 @@ int pack_zip_has_file(const char *zip_path, const char *inner_name);
  * Returns 0 on success. */
 int pack_unzip(const char *zip_path, const char *dest_root,
                int (*progress)(int i, int n, const char *name, void *ud),
-               void *ud, char *err, size_t err_sz);
+               void *ud, const char *extract_last, char *err, size_t err_sz);

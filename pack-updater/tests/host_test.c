@@ -70,7 +70,7 @@ int main(void) {
     char cmd[128];
     snprintf(cmd, sizeof cmd, "rm -rf %s && mkdir -p %s", out, out);
     if (system(cmd) != 0) return fail("mkdir out");
-    if (pack_unzip(zpath, out, unzip_nop, NULL, err, sizeof err) != 0) return fail(err);
+    if (pack_unzip(zpath, out, unzip_nop, NULL, NULL, err, sizeof err) != 0) return fail(err);
 
     struct stat st;
     if (stat("tests/out/atmosphere/package3", &st) != 0) return fail("extracted package3");
@@ -78,6 +78,11 @@ int main(void) {
     if (stat("tests/evil.txt", &st) == 0) return fail("zip-slip leaked");
     if (stat("tests/out/Nintendo/save.bin", &st) == 0) return fail("Nintendo/ should be skipped");
     printf("unzip ok (zip-slip and Nintendo/ skipped)\n");
+
+    if (pack_unzip(zpath, out, unzip_nop, NULL, "tests/out/bootloader/hekate_ipl.ini", err, sizeof err) != 0)
+        return fail(err);
+    if (stat("tests/out/bootloader/hekate_ipl.ini", &st) != 0) return fail("deferred file missing");
+    printf("extract_last still wrote the nro-equivalent file\n");
 
     char tag[64];
     if (gh_tag_from_effective_url(

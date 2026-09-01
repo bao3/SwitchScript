@@ -60,6 +60,8 @@ static void apply_common(CURL *curl, const char *url, const char *proxy,
     curl_easy_setopt(curl, CURLOPT_LOW_SPEED_LIMIT, 1024L);
     curl_easy_setopt(curl, CURLOPT_LOW_SPEED_TIME, 60L);
     curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);
+    curl_easy_setopt(curl, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
+    curl_easy_setopt(curl, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
     /* Switch does not ship Mozilla CAs; GitHub + S3 are HTTPS. */
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
@@ -68,12 +70,11 @@ static void apply_common(CURL *curl, const char *url, const char *proxy,
         char h[192];
         snprintf(h, sizeof h, "Authorization: Bearer %s", token);
         *hdrs = curl_slist_append(*hdrs, h);
-        *hdrs = curl_slist_append(*hdrs, "Accept: application/vnd.github+json");
-        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, *hdrs);
-    } else {
-        *hdrs = curl_slist_append(*hdrs, "Accept: application/vnd.github+json");
-        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, *hdrs);
     }
+    if (url && strstr(url, "api.github.com")) {
+        *hdrs = curl_slist_append(*hdrs, "Accept: application/vnd.github+json");
+    }
+    if (*hdrs) curl_easy_setopt(curl, CURLOPT_HTTPHEADER, *hdrs);
     if (pump) {
         curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, xfer);
         curl_easy_setopt(curl, CURLOPT_XFERINFODATA, pump);

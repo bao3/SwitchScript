@@ -75,9 +75,26 @@ int pack_zip_has_file(const char *zip_path, const char *inner_name) {
     return found;
 }
 
+static int path_eq(const char *a, const char *b) {
+    if (!a || !b || !a[0] || !b[0]) return 0;
+    if (!strncmp(a, "sdmc:", 5)) a += 5;
+    if (!strncmp(b, "sdmc:", 5)) b += 5;
+    while (*a == '/' || *a == '\\') a++;
+    while (*b == '/' || *b == '\\') b++;
+    for (; *a && *b; a++, b++) {
+        unsigned char ca = (unsigned char)*a, cb = (unsigned char)*b;
+        if (ca == '\\') ca = '/';
+        if (cb == '\\') cb = '/';
+        if (ca >= 'A' && ca <= 'Z') ca = (unsigned char)(ca + 32);
+        if (cb >= 'A' && cb <= 'Z') cb = (unsigned char)(cb + 32);
+        if (ca != cb) return 0;
+    }
+    return *a == 0 && *b == 0;
+}
+
 int pack_unzip(const char *zip_path, const char *dest_root,
                int (*progress)(int i, int n, const char *name, void *ud),
-               void *ud, char *err, size_t err_sz) {
+               void *ud, const char *extract_last, char *err, size_t err_sz) {
     mz_zip_archive zip;
     memset(&zip, 0, sizeof zip);
     if (!mz_zip_reader_init_file(&zip, zip_path, 0)) {
@@ -92,6 +109,7 @@ int pack_unzip(const char *zip_path, const char *dest_root,
         return -1;
     }
 
+    int deferred = -1;
     for (int i = 0; i < n; i++) {
         mz_zip_archive_file_stat st;
         if (!mz_zip_reader_file_stat(&zip, i, &st)) continue;
@@ -114,11 +132,31 @@ int pack_unzip(const char *zip_path, const char *dest_root,
             continue;
         }
 
+        if (extract_last && path_eq(dest, extract_last)) {
+            deferred = i;
+            continue;
+        }
+
         mkdir_p_of_file(dest);
         if (!mz_zip_reader_extract_to_file(&zip, (mz_uint)i, dest, 0)) {
             snprintf(err, err_sz, "extract failed: %s", st.m_filename);
             mz_zip_reader_end(&zip);
             return -1;
+        }
+    }
+
+    if (deferred >= 0) {
+        mz_zip_archive_file_stat st;
+        if (mz_zip_reader_file_stat(&zip, (mz_uint)deferred, &st)) {
+            slash_normalize(st.m_filename);
+            char dest[1024];
+            join_dest(dest, sizeof dest, dest_root, st.m_filename);
+            mkdir_p_of_file(dest);
+            if (!mz_zip_reader_extract_to_file(&zip, (mz_uint)deferred, dest, 0)) {
+                snprintf(err, err_sz, "extract failed: %s", st.m_filename);
+                mz_zip_reader_end(&zip);
+                return -1;
+            }
         }
     }
 

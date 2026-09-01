@@ -46,7 +46,7 @@ INCLUDES	:=	source include
 
 APP_TITLE	:=	PackUpdater
 APP_AUTHOR	:=	bao3
-APP_VERSION	:=	1.1.0
+APP_VERSION	:=	1.2.0
 
 # miniz symbols must not clash with libz pulled in by libcurl
 DEFINES	+=	-DMINIZ_NO_ZLIB_COMPATIBLE_NAMES

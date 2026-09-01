@@ -10,7 +10,7 @@
 #include "json.h"
 #include "unzip.h"
 
-#define VERSION "1.1.0"
+#define VERSION "1.2.0"
 #define WORK_DIR "sdmc:/switch/PackUpdater"
 #define ZIP_PATH WORK_DIR "/update.zip"
 #define INSTALLED_PATH WORK_DIR "/installed.txt"
@@ -20,6 +20,8 @@
 #define DEFAULT_EXTRACT "sdmc:/"
 #define DEFAULT_GH_PROXY "https://gh.heibang.club"
 #define REQUIRED_INNER "atmosphere/package3"
+#define MIN_BATTERY_PCT 20
+#define MIN_FREE_MB 512
 
 typedef struct {
     char repo[128];
@@ -29,6 +31,8 @@ typedef struct {
     char token[128];
     char extract_to[64];
     int min_zip_mb;
+    int min_battery_pct;
+    int min_free_mb;
 } Config;
 
 typedef struct {
@@ -40,6 +44,7 @@ typedef struct {
 static Config g_cfg;
 static char g_err[256];
 static char g_installed[64];
+static char g_self_nro[512];
 static GhAsset g_asset;
 static int g_have_asset;
 
@@ -59,6 +64,8 @@ static void cfg_defaults(Config *c) {
     snprintf(c->extract_to, sizeof c->extract_to, "%s", DEFAULT_EXTRACT);
     snprintf(c->gh_proxy, sizeof c->gh_proxy, "%s", DEFAULT_GH_PROXY);
     c->min_zip_mb = 10;
+    c->min_battery_pct = MIN_BATTERY_PCT;
+    c->min_free_mb = MIN_FREE_MB;
 }
 
 static void write_default_config(void) {
@@ -71,6 +78,8 @@ static void write_default_config(void) {
         "asset_prefix = NS-SD-Card-Atmosphere-\n"
         "extract_to = sdmc:/\n"
         "min_zip_mb = 10\n"
+        "min_battery_pct = 20\n"
+        "min_free_mb = 512\n"
         "gh_proxy = https://gh.heibang.club\n"
         "# HTTP CONNECT proxy (usually leave empty; gh_proxy is enough in CN):\n"
         "# proxy = http://192.168.50.10:7893\n"
@@ -103,6 +112,8 @@ static void load_config(void) {
         else if (!strcmp(k, "token")) snprintf(g_cfg.token, sizeof g_cfg.token, "%s", v);
         else if (!strcmp(k, "extract_to")) snprintf(g_cfg.extract_to, sizeof g_cfg.extract_to, "%s", v);
         else if (!strcmp(k, "min_zip_mb")) g_cfg.min_zip_mb = atoi(v);
+        else if (!strcmp(k, "min_battery_pct")) g_cfg.min_battery_pct = atoi(v);
+        else if (!strcmp(k, "min_free_mb")) g_cfg.min_free_mb = atoi(v);
     }
     fclose(fp);
 }
@@ -287,6 +298,42 @@ static int64_t file_size(const char *path) {
     return (int64_t)st.st_size;
 }
 
+static int battery_ok_to_extract(char *err, size_t err_sz) {
+    int need = g_cfg.min_battery_pct > 0 ? g_cfg.min_battery_pct : MIN_BATTERY_PCT;
+    if (R_FAILED(psmInitialize())) return 0; /* cannot read: do not block */
+    u32 pct = 100;
+    PsmChargerType ch = PsmChargerType_Unconnected;
+    psmGetBatteryChargePercentage(&pct);
+    psmGetChargerType(&ch);
+    psmExit();
+    int charging = (ch != PsmChargerType_Unconnected);
+    if ((int)pct < need && !charging) {
+        snprintf(err, err_sz, "battery %u%%, not charging (need >= %d%% or plug in)", pct, need);
+        return -1;
+    }
+    return 0;
+}
+
+static int sd_ok_to_extract(int64_t zip_bytes, char *err, size_t err_sz) {
+    int min_mb = g_cfg.min_free_mb > 0 ? g_cfg.min_free_mb : MIN_FREE_MB;
+    int64_t need = (int64_t)min_mb * 1024 * 1024;
+    if (zip_bytes > 0) {
+        int64_t with_zip = zip_bytes + 64LL * 1024 * 1024;
+        if (with_zip > need) need = with_zip;
+    }
+    FsFileSystem *fs = fsdevGetDeviceFileSystem("sdmc");
+    if (!fs) return 0;
+    s64 free_bytes = 0;
+    if (R_FAILED(fsFsGetFreeSpace(fs, "/", &free_bytes))) return 0;
+    if (free_bytes < need) {
+        snprintf(err, err_sz, "SD free %lld MB < need %lld MB",
+                 (long long)(free_bytes / (1024 * 1024)),
+                 (long long)(need / (1024 * 1024)));
+        return -1;
+    }
+    return 0;
+}
+
 static int do_update(PadState *pad) {
     if (!g_have_asset) {
         snprintf(g_err, sizeof g_err, "check GitHub first (press Y)");
@@ -297,6 +344,14 @@ static int do_update(PadState *pad) {
     if (g_asset.size > 0 && g_asset.size < min_bytes) {
         snprintf(g_err, sizeof g_err, "remote zip too small (%lld bytes)", (long long)g_asset.size);
         redraw("Refusing tiny zip (broken release).");
+        return -1;
+    }
+    if (battery_ok_to_extract(g_err, sizeof g_err) != 0) {
+        redraw("Charge the Switch first.");
+        return -1;
+    }
+    if (sd_ok_to_extract(g_asset.size, g_err, sizeof g_err) != 0) {
+        redraw("Not enough SD free space.");
         return -1;
     }
 
@@ -339,7 +394,8 @@ static int do_update(PadState *pad) {
 
     p.label = "Extracting";
     redraw("Extracting onto sdmc:/ ...");
-    if (pack_unzip(ZIP_PATH, g_cfg.extract_to, unzip_progress, &p, g_err, sizeof g_err) != 0) {
+    if (pack_unzip(ZIP_PATH, g_cfg.extract_to, unzip_progress, &p,
+                   g_self_nro[0] ? g_self_nro : NULL, g_err, sizeof g_err) != 0) {
         appletSetAutoSleepDisabled(false);
         redraw("Extract failed.");
         return -1;
@@ -361,8 +417,8 @@ static void do_reboot(void) {
 }
 
 int main(int argc, char **argv) {
-    (void)argc;
-    (void)argv;
+    if (argc > 0 && argv[0] && argv[0][0])
+        snprintf(g_self_nro, sizeof g_self_nro, "%s", argv[0]);
 
     consoleInit(NULL);
     padConfigureInput(1, HidNpadStyleSet_NpadStandard);
