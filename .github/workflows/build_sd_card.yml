@@ -34,7 +34,7 @@ jobs:
       - name: Fetch Atmosphere Version Tag
         id: ams_env
         run: |
-          AMS_TAG=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" https://api.github.com/repos/Atmosphere-NX/Atmosphere/releases/latest | jq -r '.tag_name')
+          AMS_TAG=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" -H "User-Agent: bao3-SwitchScript" https://api.github.com/repos/Atmosphere-NX/Atmosphere/releases/latest | jq -r '.tag_name')
           
           # 容错处理：如果 API 请求异常，则使用当前日期作为保底版本号
           if [ -z "$AMS_TAG" ] || [ "$AMS_TAG" == "null" ]; then
@@ -71,7 +71,7 @@ jobs:
       - name: Update GitHub Release
         uses: ncipollo/release-action@v1
         with:
-          artifacts: "NS-SD-Card-Atmosphere-${{ secrets.GITHUB_TOKEN && steps.ams_env.outputs.version }}.zip" 
+          artifacts: "NS-SD-Card-Atmosphere-${{ steps.ams_env.outputs.version }}.zip" 
           tag: "${{ steps.ams_env.outputs.version }}" # 将 Tag 改为版本号（如 1.11.1），大层更新时会自动生成新 Releases 历史
           name: "Nintendo Switch SD Card Build - Atmosphere ${{ steps.ams_env.outputs.version }}"
           body: |
