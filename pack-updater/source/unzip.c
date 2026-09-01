@@ -1,3 +1,7 @@
+#ifndef _POSIX_C_SOURCE
+#define _POSIX_C_SOURCE 200809L
+#endif
+
 #include "unzip.h"
 
 #include <ctype.h>
@@ -92,6 +96,114 @@ static int path_eq(const char *a, const char *b) {
     return *a == 0 && *b == 0;
 }
 
+#ifdef __SWITCH__
+#include <switch.h>
+#endif
+
+typedef struct {
+    FILE *fp;
+    int io_err;
+} ExtractWrite;
+
+static size_t extract_write_cb(void *opaque, mz_uint64 ofs, const void *buf, size_t n) {
+    ExtractWrite *w = opaque;
+    (void)ofs;
+    if (!w || !w->fp || w->io_err) return 0;
+    size_t wrote = fwrite(buf, 1, n, w->fp);
+    if (wrote != n)
+        w->io_err = errno ? errno : -1;
+    return wrote;
+}
+
+static void switch_commit(void) {
+#ifdef __SWITCH__
+    fsdevCommitDevice("sdmc");
+#endif
+}
+
+static int replace_over(const char *tmp, const char *dest, char *err, size_t err_sz) {
+    remove(dest);
+    if (rename(tmp, dest) == 0) return 0;
+
+    FILE *in = fopen(tmp, "rb");
+    FILE *out = fopen(dest, "wb");
+    if (!in || !out) {
+        if (in) fclose(in);
+        if (out) fclose(out);
+        snprintf(err, err_sz, "replace %s failed errno=%d", dest, errno);
+        return -1;
+    }
+    char buf[8192];
+    size_t n;
+    while ((n = fread(buf, 1, sizeof buf, in)) > 0) {
+        if (fwrite(buf, 1, n, out) != n) {
+            fclose(in);
+            fclose(out);
+            snprintf(err, err_sz, "copy %s failed errno=%d", dest, errno);
+            return -1;
+        }
+    }
+    fclose(in);
+    fclose(out);
+    remove(tmp);
+    return 0;
+}
+
+/* Horizon/libnx: fopen("wb")+fwrite on an existing multi-MB file (package3)
+ * often fails even with free space. Write to dest.tmp, pre-size, then rename. */
+static int extract_index_to_path(mz_zip_archive *zip, mz_uint idx, const char *dest,
+                                 char *err, size_t err_sz) {
+    mz_zip_archive_file_stat st;
+    if (!mz_zip_reader_file_stat(zip, idx, &st)) {
+        snprintf(err, err_sz, "stat failed: %s",
+                 mz_zip_get_error_string(mz_zip_get_last_error(zip)));
+        return -1;
+    }
+    slash_normalize(st.m_filename);
+
+    char dest_copy[1024];
+    snprintf(dest_copy, sizeof dest_copy, "%s", dest);
+    slash_normalize(dest_copy);
+    mkdir_p_of_file(dest_copy);
+
+    char tmp[1100];
+    snprintf(tmp, sizeof tmp, "%s.tmp", dest_copy);
+    remove(tmp);
+
+    FILE *fp = fopen(tmp, "wb");
+    if (!fp) {
+        snprintf(err, err_sz, "open %s errno=%d", tmp, errno);
+        return -1;
+    }
+    if (st.m_uncomp_size > 0) {
+        (void)ftruncate(fileno(fp), (off_t)st.m_uncomp_size);
+        (void)fseek(fp, 0, SEEK_SET);
+    }
+
+    ExtractWrite wr = { .fp = fp, .io_err = 0 };
+    mz_bool ok = mz_zip_reader_extract_to_callback(zip, idx, extract_write_cb, &wr, 0);
+    int flush_err = fflush(fp);
+    int close_err = fclose(fp);
+
+    if (!ok || wr.io_err || flush_err || close_err) {
+        mz_zip_error mzerr = mz_zip_get_last_error(zip);
+        snprintf(err, err_sz, "extract failed: %s (%s errno=%d)",
+                 st.m_filename,
+                 mz_zip_get_error_string(mzerr),
+                 wr.io_err ? wr.io_err : errno);
+        remove(tmp);
+        return -1;
+    }
+
+    if (replace_over(tmp, dest_copy, err, err_sz) != 0) {
+        remove(tmp);
+        return -1;
+    }
+    if (st.m_uncomp_size >= (mz_uint64)(1u << 20))
+        switch_commit();
+    return 0;
+}
+
 int pack_unzip(const char *zip_path, const char *dest_root,
                int (*progress)(int i, int n, const char *name, void *ud),
                void *ud, const char *extract_last, char *err, size_t err_sz) {
@@ -138,8 +250,7 @@ int pack_unzip(const char *zip_path, const char *dest_root,
         }
 
         mkdir_p_of_file(dest);
-        if (!mz_zip_reader_extract_to_file(&zip, (mz_uint)i, dest, 0)) {
-            snprintf(err, err_sz, "extract failed: %s", st.m_filename);
+        if (extract_index_to_path(&zip, (mz_uint)i, dest, err, err_sz) != 0) {
             mz_zip_reader_end(&zip);
             return -1;
         }
@@ -152,8 +263,7 @@ int pack_unzip(const char *zip_path, const char *dest_root,
             char dest[1024];
             join_dest(dest, sizeof dest, dest_root, st.m_filename);
             mkdir_p_of_file(dest);
-            if (!mz_zip_reader_extract_to_file(&zip, (mz_uint)deferred, dest, 0)) {
-                snprintf(err, err_sz, "extract failed: %s", st.m_filename);
+            if (extract_index_to_path(&zip, (mz_uint)deferred, dest, err, err_sz) != 0) {
                 mz_zip_reader_end(&zip);
                 return -1;
             }
@@ -161,6 +271,7 @@ int pack_unzip(const char *zip_path, const char *dest_root,
     }
 
     mz_zip_reader_end(&zip);
+    switch_commit();
     return 0;
 }
 
@@ -214,11 +325,11 @@ int pack_unzip_one(const char *zip_path, const char *inner_name,
     snprintf(dest, sizeof dest, "%s", dest_file);
     slash_normalize(dest);
     mkdir_p_of_file(dest);
-    if (!mz_zip_reader_extract_to_file(&zip, (mz_uint)found, dest, 0)) {
-        snprintf(err, err_sz, "extract failed: %s", found_name[0] ? found_name : inner_name);
+    if (extract_index_to_path(&zip, (mz_uint)found, dest, err, err_sz) != 0) {
         mz_zip_reader_end(&zip);
         return -1;
     }
     mz_zip_reader_end(&zip);
+    switch_commit();
     return 0;
 }

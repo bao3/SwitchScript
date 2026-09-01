@@ -10,6 +10,8 @@ and extract it onto `sdmc:/`.
 2. Open it from hbmenu. It checks GitHub Releases for
    `NS-SD-Card-Atmosphere-*.zip`.
 3. Press A to download and extract onto the SD root in one shot.
+   Large files are written to `*.tmp`, pre-sized, then renamed over the
+   original (Horizon/libnx `fopen("wb")` on an existing `package3` fails).
    `Nintendo/` and game folders are never touched.
 4. Optional: from the main screen, B writes only `PackUpdater.nro`.
 5. Press X to reboot when a full extract finishes.

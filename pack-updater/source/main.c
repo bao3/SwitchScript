@@ -10,7 +10,7 @@
 #include "json.h"
 #include "unzip.h"
 
-#define VERSION "1.3.1"
+#define VERSION "1.4.0"
 #define WORK_DIR "sdmc:/switch/PackUpdater"
 #define ZIP_PATH WORK_DIR "/update.zip"
 #define INSTALLED_PATH WORK_DIR "/installed.txt"

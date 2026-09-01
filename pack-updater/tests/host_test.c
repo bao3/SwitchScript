@@ -102,6 +102,22 @@ int main(void) {
     if (stat("tests/one/by-base.nro", &st) != 0) return fail("basename match");
     printf("unzip_one ok (exact path and basename)\n");
 
+    {
+        FILE *pre = fopen("tests/out/atmosphere/package3", "w");
+        if (!pre) return fail("seed overwrite");
+        fputs("OLD-PACKAGE3", pre);
+        fclose(pre);
+        if (pack_unzip(zpath, out, unzip_nop, NULL, NULL, err, sizeof err) != 0)
+            return fail(err);
+        FILE *got = fopen("tests/out/atmosphere/package3", "r");
+        if (!got) return fail("overwrite dest missing");
+        char b[32] = {0};
+        if (!fgets(b, sizeof b, got)) { fclose(got); return fail("overwrite empty"); }
+        fclose(got);
+        if (strcmp(b, "package3-bytes") != 0) return fail("overwrite content");
+        printf("overwrite existing package3 ok\n");
+    }
+
     char tag[64];
     if (gh_tag_from_effective_url(
             "https://gh.heibang.club/https://github.com/bao3/SwitchScript/releases/tag/1.11.2",
