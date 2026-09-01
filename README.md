@@ -22,6 +22,6 @@ Comment out any `*_URL` in `switchScript.sh` to skip that component.
 GitHub Actions builds a zip release daily and compiles PackUpdater.nro.
 Set `GITHUB_TOKEN` locally to avoid API rate limits.
 
-On the Switch: hbmenu -> PackUpdater -> A to update. See `pack-updater/README.md`.
+On the Switch: hbmenu -> PackUpdater -> B to update PackUpdater first, or A for the full pack. See `pack-updater/README.md`.
 
 Based on community CFW guides; not written or endorsed by those authors.

@@ -60,6 +60,8 @@ int main(void) {
         return fail("add evil");
     if (!mz_zip_writer_add_mem(&zip, "Nintendo/save.bin", "no", 2, MZ_DEFAULT_COMPRESSION))
         return fail("add nintendo");
+    if (!mz_zip_writer_add_mem(&zip, "switch/PackUpdater/PackUpdater.nro", "nro-bytes", 9, MZ_DEFAULT_COMPRESSION))
+        return fail("add nro");
     if (!mz_zip_writer_finalize_archive(&zip)) return fail("finalize");
     mz_zip_writer_end(&zip);
 
@@ -83,6 +85,22 @@ int main(void) {
         return fail(err);
     if (stat("tests/out/bootloader/hekate_ipl.ini", &st) != 0) return fail("deferred file missing");
     printf("extract_last still wrote the nro-equivalent file\n");
+
+    if (system("rm -rf tests/one && mkdir -p tests/one") != 0) return fail("mkdir one");
+    if (pack_unzip_one(zpath, "switch/PackUpdater/PackUpdater.nro",
+                       "tests/one/PackUpdater.nro", err, sizeof err) != 0)
+        return fail(err);
+    FILE *fp = fopen("tests/one/PackUpdater.nro", "r");
+    if (!fp) return fail("unzip_one dest missing");
+    char buf[16] = {0};
+    if (!fgets(buf, sizeof buf, fp)) { fclose(fp); return fail("unzip_one empty"); }
+    fclose(fp);
+    if (strcmp(buf, "nro-bytes") != 0) return fail("unzip_one content");
+    if (stat("tests/one/atmosphere/package3", &st) == 0) return fail("unzip_one extracted extra");
+    if (pack_unzip_one(zpath, "PackUpdater.nro", "tests/one/by-base.nro", err, sizeof err) != 0)
+        return fail(err);
+    if (stat("tests/one/by-base.nro", &st) != 0) return fail("basename match");
+    printf("unzip_one ok (exact path and basename)\n");
 
     char tag[64];
     if (gh_tag_from_effective_url(

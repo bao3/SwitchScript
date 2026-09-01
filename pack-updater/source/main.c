@@ -10,7 +10,7 @@
 #include "json.h"
 #include "unzip.h"
 
-#define VERSION "1.2.0"
+#define VERSION "1.3.0"
 #define WORK_DIR "sdmc:/switch/PackUpdater"
 #define ZIP_PATH WORK_DIR "/update.zip"
 #define INSTALLED_PATH WORK_DIR "/installed.txt"
@@ -20,8 +20,11 @@
 #define DEFAULT_EXTRACT "sdmc:/"
 #define DEFAULT_GH_PROXY "https://gh.heibang.club"
 #define REQUIRED_INNER "atmosphere/package3"
+#define SELF_INNER "switch/PackUpdater/PackUpdater.nro"
 #define MIN_BATTERY_PCT 20
 #define MIN_FREE_MB 512
+#define NRO_MIN_BYTES (100 * 1024)
+#define NRO_MAX_BYTES (16 * 1024 * 1024)
 
 typedef struct {
     char repo[128];
@@ -208,11 +211,13 @@ static void banner(const char *status) {
     if (g_err[0]) printf("error: %s\n", g_err);
     printf("--------------------------------\n");
     printf("[A] download + extract to SD root\n");
+    printf("[B] update PackUpdater first\n");
     printf("[Y] recheck GitHub\n");
     printf("[X] reboot\n");
     printf("[+] quit\n");
     printf("\nThis overlays atmosphere/bootloader/switch from\n");
     printf("the pack. Nintendo/ and games are not touched.\n");
+    printf("B writes only PackUpdater.nro; quit and reopen to use it.\n");
 }
 
 static void redraw(const char *status) {
@@ -314,13 +319,7 @@ static int battery_ok_to_extract(char *err, size_t err_sz) {
     return 0;
 }
 
-static int sd_ok_to_extract(int64_t zip_bytes, char *err, size_t err_sz) {
-    int min_mb = g_cfg.min_free_mb > 0 ? g_cfg.min_free_mb : MIN_FREE_MB;
-    int64_t need = (int64_t)min_mb * 1024 * 1024;
-    if (zip_bytes > 0) {
-        int64_t with_zip = zip_bytes + 64LL * 1024 * 1024;
-        if (with_zip > need) need = with_zip;
-    }
+static int sd_has_free(int64_t need, char *err, size_t err_sz) {
     FsFileSystem *fs = fsdevGetDeviceFileSystem("sdmc");
     if (!fs) return 0;
     s64 free_bytes = 0;
@@ -331,6 +330,160 @@ static int sd_ok_to_extract(int64_t zip_bytes, char *err, size_t err_sz) {
                  (long long)(need / (1024 * 1024)));
         return -1;
     }
+    return 0;
+}
+
+static int sd_ok_to_extract(int64_t zip_bytes, char *err, size_t err_sz) {
+    int min_mb = g_cfg.min_free_mb > 0 ? g_cfg.min_free_mb : MIN_FREE_MB;
+    int64_t need = (int64_t)min_mb * 1024 * 1024;
+    if (zip_bytes > 0) {
+        int64_t with_zip = zip_bytes + 64LL * 1024 * 1024;
+        if (with_zip > need) need = with_zip;
+    }
+    return sd_has_free(need, err, err_sz);
+}
+
+static const char *self_nro_path(void) {
+    if (g_self_nro[0]) return g_self_nro;
+    return WORK_DIR "/PackUpdater.nro";
+}
+
+static int zip_looks_valid(void) {
+    int64_t min_bytes = (int64_t)g_cfg.min_zip_mb * 1024 * 1024;
+    if (file_size(ZIP_PATH) < min_bytes) return 0;
+    return pack_zip_has_file(ZIP_PATH, REQUIRED_INNER);
+}
+
+static int nro_size_ok(int64_t sz) {
+    return sz >= (int64_t)NRO_MIN_BYTES && sz <= (int64_t)NRO_MAX_BYTES;
+}
+
+static int replace_file(const char *from, const char *to, char *err, size_t err_sz) {
+    if (!from || !to || !from[0] || !to[0]) {
+        snprintf(err, err_sz, "replace_file: bad args");
+        return -1;
+    }
+    remove(to);
+    if (rename(from, to) != 0) {
+        snprintf(err, err_sz, "could not write %s", to);
+        return -1;
+    }
+    return 0;
+}
+
+static int extract_self_from_zip(void) {
+    return pack_unzip_one(ZIP_PATH, SELF_INNER, self_nro_path(), g_err, sizeof g_err);
+}
+
+static int ensure_zip(PadState *pad) {
+    int64_t min_bytes = (int64_t)g_cfg.min_zip_mb * 1024 * 1024;
+    if (zip_looks_valid()) {
+        redraw("Using already-downloaded zip.");
+        return 0;
+    }
+    remove(ZIP_PATH);
+    Pump p = {.pad = pad, .label = "Downloading pack", .abort = 0};
+    redraw("Downloading...");
+    if (http_get_file(g_asset.url, ZIP_PATH, g_cfg.proxy,
+                      g_cfg.gh_proxy[0] ? NULL : g_cfg.token,
+                      pump_cb, &p, g_err, sizeof g_err) != 0) {
+        redraw("Download failed.");
+        return -1;
+    }
+    if (p.abort) {
+        remove(ZIP_PATH);
+        redraw("Aborted.");
+        return -1;
+    }
+    int64_t sz = file_size(ZIP_PATH);
+    if (sz < min_bytes) {
+        snprintf(g_err, sizeof g_err, "downloaded %lld bytes, need >= %d MB",
+                 (long long)sz, g_cfg.min_zip_mb);
+        remove(ZIP_PATH);
+        redraw("Refusing tiny zip.");
+        return -1;
+    }
+    if (!pack_zip_has_file(ZIP_PATH, REQUIRED_INNER)) {
+        snprintf(g_err, sizeof g_err, "zip missing %s", REQUIRED_INNER);
+        remove(ZIP_PATH);
+        redraw("Not a valid SD pack.");
+        return -1;
+    }
+    return 0;
+}
+
+static int wait_extract_choice(PadState *pad) {
+    g_err[0] = 0;
+    redraw("A = extract all.  B = PackUpdater only.  + = abort.");
+    while (appletMainLoop()) {
+        padUpdate(pad);
+        u64 k = padGetButtonsDown(pad);
+        if (k & HidNpadButton_A) return 1;
+        if (k & HidNpadButton_B) return 2;
+        if (k & HidNpadButton_Plus) return 0;
+        consoleUpdate(NULL);
+    }
+    return 0;
+}
+
+static int do_self_update(PadState *pad) {
+    if (!g_have_asset) {
+        snprintf(g_err, sizeof g_err, "check GitHub first (press Y)");
+        redraw("No release info.");
+        return -1;
+    }
+    if (battery_ok_to_extract(g_err, sizeof g_err) != 0) {
+        redraw("Charge the Switch first.");
+        return -1;
+    }
+    if (sd_has_free(16LL * 1024 * 1024, g_err, sizeof g_err) != 0) {
+        redraw("Not enough SD free space.");
+        return -1;
+    }
+
+    appletSetAutoSleepDisabled(true);
+    mkdir(WORK_DIR, 0777);
+
+    char src[256], url[768], tmp[1024];
+    snprintf(src, sizeof src, "https://github.com/%s/releases/download/%s/PackUpdater.nro",
+             g_cfg.repo, g_asset.tag);
+    via_gh(url, sizeof url, src);
+    snprintf(tmp, sizeof tmp, "%s.new", self_nro_path());
+    remove(tmp);
+
+    Pump p = {.pad = pad, .label = "Downloading PackUpdater.nro", .abort = 0};
+    redraw("Downloading PackUpdater.nro ...");
+    int got_nro = 0;
+    if (http_get_file(url, tmp, g_cfg.proxy,
+                      g_cfg.gh_proxy[0] ? NULL : g_cfg.token,
+                      pump_cb, &p, g_err, sizeof g_err) == 0 && !p.abort) {
+        int64_t sz = file_size(tmp);
+        if (nro_size_ok(sz)) {
+            if (replace_file(tmp, self_nro_path(), g_err, sizeof g_err) == 0)
+                got_nro = 1;
+        } else {
+            snprintf(g_err, sizeof g_err, "nro size %lld not plausible", (long long)sz);
+        }
+    }
+    remove(tmp);
+
+    if (!got_nro) {
+        g_err[0] = 0;
+        redraw("NRO asset missed; downloading full zip ...");
+        if (ensure_zip(pad) != 0) {
+            appletSetAutoSleepDisabled(false);
+            return -1;
+        }
+        if (extract_self_from_zip() != 0) {
+            appletSetAutoSleepDisabled(false);
+            redraw("Could not extract PackUpdater.nro.");
+            return -1;
+        }
+    }
+
+    appletSetAutoSleepDisabled(false);
+    g_err[0] = 0;
+    redraw("PackUpdater written. Press + then reopen, then A for the pack.");
     return 0;
 }
 
@@ -357,42 +510,31 @@ static int do_update(PadState *pad) {
 
     appletSetAutoSleepDisabled(true);
     mkdir(WORK_DIR, 0777);
-    remove(ZIP_PATH);
 
-    Pump p = {.pad = pad, .label = "Downloading pack", .abort = 0};
-    redraw("Downloading...");
-    if (http_get_file(g_asset.url, ZIP_PATH, g_cfg.proxy,
-                      g_cfg.gh_proxy[0] ? NULL : g_cfg.token,
-                      pump_cb, &p, g_err, sizeof g_err) != 0) {
+    if (ensure_zip(pad) != 0) {
         appletSetAutoSleepDisabled(false);
-        redraw("Download failed.");
-        return -1;
-    }
-    if (p.abort) {
-        appletSetAutoSleepDisabled(false);
-        remove(ZIP_PATH);
-        redraw("Aborted.");
         return -1;
     }
 
-    int64_t sz = file_size(ZIP_PATH);
-    if (sz < min_bytes) {
-        snprintf(g_err, sizeof g_err, "downloaded %lld bytes, need >= %d MB",
-                 (long long)sz, g_cfg.min_zip_mb);
-        remove(ZIP_PATH);
+    int choice = wait_extract_choice(pad);
+    if (choice == 0) {
         appletSetAutoSleepDisabled(false);
-        redraw("Refusing tiny zip.");
+        redraw("Aborted. Zip kept.");
         return -1;
     }
-    if (!pack_zip_has_file(ZIP_PATH, REQUIRED_INNER)) {
-        snprintf(g_err, sizeof g_err, "zip missing %s", REQUIRED_INNER);
-        remove(ZIP_PATH);
+    if (choice == 2) {
+        if (extract_self_from_zip() != 0) {
+            appletSetAutoSleepDisabled(false);
+            redraw("Could not extract PackUpdater.nro.");
+            return -1;
+        }
         appletSetAutoSleepDisabled(false);
-        redraw("Not a valid SD pack.");
-        return -1;
+        g_err[0] = 0;
+        redraw("PackUpdater written. Zip kept. Press + then reopen, then A.");
+        return 0;
     }
 
-    p.label = "Extracting";
+    Pump p = {.pad = pad, .label = "Extracting", .abort = 0};
     redraw("Extracting onto sdmc:/ ...");
     if (pack_unzip(ZIP_PATH, g_cfg.extract_to, unzip_progress, &p,
                    g_self_nro[0] ? g_self_nro : NULL, g_err, sizeof g_err) != 0) {
@@ -445,6 +587,7 @@ int main(int argc, char **argv) {
         if (k & HidNpadButton_Plus) break;
         if (k & HidNpadButton_Y) fetch_latest(&pad);
         if (k & HidNpadButton_A) do_update(&pad);
+        if (k & HidNpadButton_B) do_self_update(&pad);
         if (k & HidNpadButton_X) do_reboot();
         consoleUpdate(NULL);
     }

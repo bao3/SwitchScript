@@ -12,3 +12,7 @@ int pack_zip_has_file(const char *zip_path, const char *inner_name);
 int pack_unzip(const char *zip_path, const char *dest_root,
                int (*progress)(int i, int n, const char *name, void *ud),
                void *ud, const char *extract_last, char *err, size_t err_sz);
+
+/* Extract one zip member (exact inner path, or matching basename) to dest_file. */
+int pack_unzip_one(const char *zip_path, const char *inner_name,
+                   const char *dest_file, char *err, size_t err_sz);

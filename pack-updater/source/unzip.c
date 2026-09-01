@@ -163,3 +163,62 @@ int pack_unzip(const char *zip_path, const char *dest_root,
     mz_zip_reader_end(&zip);
     return 0;
 }
+
+static const char *path_base(const char *p) {
+    const char *s = p;
+    for (; p && *p; p++) {
+        if (*p == '/' || *p == '\\') s = p + 1;
+    }
+    return s ? s : "";
+}
+
+static int inner_matches(const char *name, const char *want) {
+    if (path_eq(name, want)) return 1;
+    return path_eq(path_base(name), path_base(want));
+}
+
+int pack_unzip_one(const char *zip_path, const char *inner_name,
+                   const char *dest_file, char *err, size_t err_sz) {
+    if (!zip_path || !inner_name || !dest_file || !inner_name[0] || !dest_file[0]) {
+        snprintf(err, err_sz, "unzip_one: bad args");
+        return -1;
+    }
+    mz_zip_archive zip;
+    memset(&zip, 0, sizeof zip);
+    if (!mz_zip_reader_init_file(&zip, zip_path, 0)) {
+        snprintf(err, err_sz, "open zip failed: %s", zip_path);
+        return -1;
+    }
+    int n = (int)mz_zip_reader_get_num_files(&zip);
+    int found = -1;
+    char found_name[512];
+    found_name[0] = 0;
+    for (int i = 0; i < n; i++) {
+        mz_zip_archive_file_stat st;
+        if (!mz_zip_reader_file_stat(&zip, i, &st)) continue;
+        slash_normalize(st.m_filename);
+        if (!path_is_safe(st.m_filename)) continue;
+        if (st.m_is_directory) continue;
+        if (inner_matches(st.m_filename, inner_name)) {
+            found = i;
+            snprintf(found_name, sizeof found_name, "%s", st.m_filename);
+            break;
+        }
+    }
+    if (found < 0) {
+        mz_zip_reader_end(&zip);
+        snprintf(err, err_sz, "zip missing %s", inner_name);
+        return -1;
+    }
+    char dest[1024];
+    snprintf(dest, sizeof dest, "%s", dest_file);
+    slash_normalize(dest);
+    mkdir_p_of_file(dest);
+    if (!mz_zip_reader_extract_to_file(&zip, (mz_uint)found, dest, 0)) {
+        snprintf(err, err_sz, "extract failed: %s", found_name[0] ? found_name : inner_name);
+        mz_zip_reader_end(&zip);
+        return -1;
+    }
+    mz_zip_reader_end(&zip);
+    return 0;
+}
