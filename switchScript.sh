@@ -476,6 +476,9 @@ if [[ -f "$PACK_UPDATER_NRO" ]]; then
     if [[ -f "$WORKDIR/pack-updater/config.ini.example" ]]; then
       cp "$WORKDIR/pack-updater/config.ini.example" "$OUTPUT_DIR/switch/PackUpdater/config.ini"
     fi
+    if [[ -f "$WORKDIR/pack-updater/data/TegraExplorer.bin" ]]; then
+      cp "$WORKDIR/pack-updater/data/TegraExplorer.bin" "$OUTPUT_DIR/switch/PackUpdater/TegraExplorer.bin"
+    fi
     log "Installed PackUpdater.nro"
   fi
 fi

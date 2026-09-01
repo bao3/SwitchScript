@@ -1,0 +1,10 @@
+TegraExplorer.bin is the 4.2.0 release of
+https://github.com/suchmememanyskill/TegraExplorer
+(GPL-2.0, based on Lockpick_RCM / Hekate).
+
+ams_bpc.c / ams_bpc.h are from Atmosphère-NX (GPL-2.0),
+via aio-switch-updater's copies.
+
+PackUpdater writes sd:/startup.te then reboots into TegraExplorer so
+atmosphere/package3.aio and stratosphere.romfs.aio are copied over the
+live files before Atmosphere starts — same strategy as AIO Switch Updater.

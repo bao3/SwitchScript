@@ -204,6 +204,17 @@ static int extract_index_to_path(mz_zip_archive *zip, mz_uint idx, const char *d
     return 0;
 }
 
+static int is_ams_core(const char *rel) {
+    const char *n = rel;
+    if (!n || !n[0]) return 0;
+    if (!strncmp(n, "atmosphere/", 11) || !strncmp(n, "Atmosphere/", 11))
+        n += 11;
+    else
+        return 0;
+    if (strchr(n, '/') || strchr(n, '\\')) return 0;
+    return path_eq(n, "package3") || path_eq(n, "stratosphere.romfs");
+}
+
 int pack_unzip(const char *zip_path, const char *dest_root,
                int (*progress)(int i, int n, const char *name, void *ud),
                void *ud, const char *extract_last, char *err, size_t err_sz) {
@@ -237,6 +248,11 @@ int pack_unzip(const char *zip_path, const char *dest_root,
 
         char dest[1024];
         join_dest(dest, sizeof dest, dest_root, st.m_filename);
+        if (is_ams_core(st.m_filename)) {
+            size_t used = strlen(dest);
+            if (used + 5 < sizeof dest)
+                memcpy(dest + used, ".aio", 5);
+        }
 
         if (st.m_is_directory || (st.m_filename[0] && st.m_filename[strlen(st.m_filename) - 1] == '/')) {
             mkdir_p_of_file(dest);

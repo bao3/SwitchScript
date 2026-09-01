@@ -6,12 +6,11 @@
 
 #include <switch.h>
 
-#include "ams_bpc.h"
 #include "http.h"
 #include "json.h"
 #include "unzip.h"
 
-#define VERSION "1.5.0"
+#define VERSION "1.2.0"
 #define WORK_DIR "sdmc:/switch/PackUpdater"
 #define ZIP_PATH WORK_DIR "/update.zip"
 #define INSTALLED_PATH WORK_DIR "/installed.txt"
@@ -21,16 +20,8 @@
 #define DEFAULT_EXTRACT "sdmc:/"
 #define DEFAULT_GH_PROXY "https://gh.heibang.club"
 #define REQUIRED_INNER "atmosphere/package3"
-#define SELF_INNER "switch/PackUpdater/PackUpdater.nro"
 #define MIN_BATTERY_PCT 20
 #define MIN_FREE_MB 512
-#define NRO_MIN_BYTES (100 * 1024)
-#define NRO_MAX_BYTES (16 * 1024 * 1024)
-#define TE_PATH WORK_DIR "/TegraExplorer.bin"
-#define STARTUP_TE "sdmc:/startup.te"
-#define PKG3_AIO "sdmc:/atmosphere/package3.aio"
-#define STRAT_AIO "sdmc:/atmosphere/stratosphere.romfs.aio"
-#define IRAM_PAYLOAD_MAX_SIZE 0x2F000
 
 typedef struct {
     char repo[128];
@@ -56,8 +47,6 @@ static char g_installed[64];
 static char g_self_nro[512];
 static GhAsset g_asset;
 static int g_have_asset;
-
-static void write_startup_te(void);
 
 static void trim(char *s) {
     char *a = s;
@@ -219,14 +208,11 @@ static void banner(const char *status) {
     if (g_err[0]) printf("error: %s\n", g_err);
     printf("--------------------------------\n");
     printf("[A] download + extract to SD root\n");
-    printf("[B] update PackUpdater first\n");
     printf("[Y] recheck GitHub\n");
     printf("[X] reboot\n");
     printf("[+] quit\n");
     printf("\nThis overlays atmosphere/bootloader/switch from\n");
     printf("the pack. Nintendo/ and games are not touched.\n");
-    printf("package3 is applied on reboot via TegraExplorer.\n");
-    printf("A does a full update in one shot. B is optional.\n");
 }
 
 static void redraw(const char *status) {
@@ -328,7 +314,13 @@ static int battery_ok_to_extract(char *err, size_t err_sz) {
     return 0;
 }
 
-static int sd_has_free(int64_t need, char *err, size_t err_sz) {
+static int sd_ok_to_extract(int64_t zip_bytes, char *err, size_t err_sz) {
+    int min_mb = g_cfg.min_free_mb > 0 ? g_cfg.min_free_mb : MIN_FREE_MB;
+    int64_t need = (int64_t)min_mb * 1024 * 1024;
+    if (zip_bytes > 0) {
+        int64_t with_zip = zip_bytes + 64LL * 1024 * 1024;
+        if (with_zip > need) need = with_zip;
+    }
     FsFileSystem *fs = fsdevGetDeviceFileSystem("sdmc");
     if (!fs) return 0;
     s64 free_bytes = 0;
@@ -339,146 +331,6 @@ static int sd_has_free(int64_t need, char *err, size_t err_sz) {
                  (long long)(need / (1024 * 1024)));
         return -1;
     }
-    return 0;
-}
-
-static int sd_ok_to_extract(int64_t zip_bytes, char *err, size_t err_sz) {
-    int min_mb = g_cfg.min_free_mb > 0 ? g_cfg.min_free_mb : MIN_FREE_MB;
-    int64_t need = (int64_t)min_mb * 1024 * 1024;
-    if (zip_bytes > 0) {
-        int64_t with_zip = zip_bytes + 64LL * 1024 * 1024;
-        if (with_zip > need) need = with_zip;
-    }
-    return sd_has_free(need, err, err_sz);
-}
-
-static const char *self_nro_path(void) {
-    if (g_self_nro[0]) return g_self_nro;
-    return WORK_DIR "/PackUpdater.nro";
-}
-
-static int zip_looks_valid(void) {
-    int64_t min_bytes = (int64_t)g_cfg.min_zip_mb * 1024 * 1024;
-    if (file_size(ZIP_PATH) < min_bytes) return 0;
-    return pack_zip_has_file(ZIP_PATH, REQUIRED_INNER);
-}
-
-static int nro_size_ok(int64_t sz) {
-    return sz >= (int64_t)NRO_MIN_BYTES && sz <= (int64_t)NRO_MAX_BYTES;
-}
-
-static int replace_file(const char *from, const char *to, char *err, size_t err_sz) {
-    if (!from || !to || !from[0] || !to[0]) {
-        snprintf(err, err_sz, "replace_file: bad args");
-        return -1;
-    }
-    remove(to);
-    if (rename(from, to) != 0) {
-        snprintf(err, err_sz, "could not write %s", to);
-        return -1;
-    }
-    return 0;
-}
-
-static int extract_self_from_zip(void) {
-    return pack_unzip_one(ZIP_PATH, SELF_INNER, self_nro_path(), g_err, sizeof g_err);
-}
-
-static int ensure_zip(PadState *pad) {
-    int64_t min_bytes = (int64_t)g_cfg.min_zip_mb * 1024 * 1024;
-    if (zip_looks_valid()) {
-        redraw("Using already-downloaded zip.");
-        return 0;
-    }
-    remove(ZIP_PATH);
-    Pump p = {.pad = pad, .label = "Downloading pack", .abort = 0};
-    redraw("Downloading...");
-    if (http_get_file(g_asset.url, ZIP_PATH, g_cfg.proxy,
-                      g_cfg.gh_proxy[0] ? NULL : g_cfg.token,
-                      pump_cb, &p, g_err, sizeof g_err) != 0) {
-        redraw("Download failed.");
-        return -1;
-    }
-    if (p.abort) {
-        remove(ZIP_PATH);
-        redraw("Aborted.");
-        return -1;
-    }
-    int64_t sz = file_size(ZIP_PATH);
-    if (sz < min_bytes) {
-        snprintf(g_err, sizeof g_err, "downloaded %lld bytes, need >= %d MB",
-                 (long long)sz, g_cfg.min_zip_mb);
-        remove(ZIP_PATH);
-        redraw("Refusing tiny zip.");
-        return -1;
-    }
-    if (!pack_zip_has_file(ZIP_PATH, REQUIRED_INNER)) {
-        snprintf(g_err, sizeof g_err, "zip missing %s", REQUIRED_INNER);
-        remove(ZIP_PATH);
-        redraw("Not a valid SD pack.");
-        return -1;
-    }
-    return 0;
-}
-
-static int do_self_update(PadState *pad) {
-    if (!g_have_asset) {
-        snprintf(g_err, sizeof g_err, "check GitHub first (press Y)");
-        redraw("No release info.");
-        return -1;
-    }
-    if (battery_ok_to_extract(g_err, sizeof g_err) != 0) {
-        redraw("Charge the Switch first.");
-        return -1;
-    }
-    if (sd_has_free(16LL * 1024 * 1024, g_err, sizeof g_err) != 0) {
-        redraw("Not enough SD free space.");
-        return -1;
-    }
-
-    appletSetAutoSleepDisabled(true);
-    mkdir(WORK_DIR, 0777);
-
-    char src[256], url[768], tmp[1024];
-    snprintf(src, sizeof src, "https://github.com/%s/releases/download/%s/PackUpdater.nro",
-             g_cfg.repo, g_asset.tag);
-    via_gh(url, sizeof url, src);
-    snprintf(tmp, sizeof tmp, "%s.new", self_nro_path());
-    remove(tmp);
-
-    Pump p = {.pad = pad, .label = "Downloading PackUpdater.nro", .abort = 0};
-    redraw("Downloading PackUpdater.nro ...");
-    int got_nro = 0;
-    if (http_get_file(url, tmp, g_cfg.proxy,
-                      g_cfg.gh_proxy[0] ? NULL : g_cfg.token,
-                      pump_cb, &p, g_err, sizeof g_err) == 0 && !p.abort) {
-        int64_t sz = file_size(tmp);
-        if (nro_size_ok(sz)) {
-            if (replace_file(tmp, self_nro_path(), g_err, sizeof g_err) == 0)
-                got_nro = 1;
-        } else {
-            snprintf(g_err, sizeof g_err, "nro size %lld not plausible", (long long)sz);
-        }
-    }
-    remove(tmp);
-
-    if (!got_nro) {
-        g_err[0] = 0;
-        redraw("NRO asset missed; downloading full zip ...");
-        if (ensure_zip(pad) != 0) {
-            appletSetAutoSleepDisabled(false);
-            return -1;
-        }
-        if (extract_self_from_zip() != 0) {
-            appletSetAutoSleepDisabled(false);
-            redraw("Could not extract PackUpdater.nro.");
-            return -1;
-        }
-    }
-
-    appletSetAutoSleepDisabled(false);
-    g_err[0] = 0;
-    redraw("PackUpdater written. Press + then reopen, then A for the pack.");
     return 0;
 }
 
@@ -505,13 +357,42 @@ static int do_update(PadState *pad) {
 
     appletSetAutoSleepDisabled(true);
     mkdir(WORK_DIR, 0777);
+    remove(ZIP_PATH);
 
-    if (ensure_zip(pad) != 0) {
+    Pump p = {.pad = pad, .label = "Downloading pack", .abort = 0};
+    redraw("Downloading...");
+    if (http_get_file(g_asset.url, ZIP_PATH, g_cfg.proxy,
+                      g_cfg.gh_proxy[0] ? NULL : g_cfg.token,
+                      pump_cb, &p, g_err, sizeof g_err) != 0) {
         appletSetAutoSleepDisabled(false);
+        redraw("Download failed.");
+        return -1;
+    }
+    if (p.abort) {
+        appletSetAutoSleepDisabled(false);
+        remove(ZIP_PATH);
+        redraw("Aborted.");
         return -1;
     }
 
-    Pump p = {.pad = pad, .label = "Extracting", .abort = 0};
+    int64_t sz = file_size(ZIP_PATH);
+    if (sz < min_bytes) {
+        snprintf(g_err, sizeof g_err, "downloaded %lld bytes, need >= %d MB",
+                 (long long)sz, g_cfg.min_zip_mb);
+        remove(ZIP_PATH);
+        appletSetAutoSleepDisabled(false);
+        redraw("Refusing tiny zip.");
+        return -1;
+    }
+    if (!pack_zip_has_file(ZIP_PATH, REQUIRED_INNER)) {
+        snprintf(g_err, sizeof g_err, "zip missing %s", REQUIRED_INNER);
+        remove(ZIP_PATH);
+        appletSetAutoSleepDisabled(false);
+        redraw("Not a valid SD pack.");
+        return -1;
+    }
+
+    p.label = "Extracting";
     redraw("Extracting onto sdmc:/ ...");
     if (pack_unzip(ZIP_PATH, g_cfg.extract_to, unzip_progress, &p,
                    g_self_nro[0] ? g_self_nro : NULL, g_err, sizeof g_err) != 0) {
@@ -525,88 +406,11 @@ static int do_update(PadState *pad) {
     remove(ZIP_PATH);
     appletSetAutoSleepDisabled(false);
     g_err[0] = 0;
-    if (access(PKG3_AIO, F_OK) == 0 || access(STRAT_AIO, F_OK) == 0) {
-        write_startup_te();
-        redraw("Done. Press X to reboot and apply package3.");
-    } else {
-        redraw("Done. Reboot recommended (press X).");
-    }
+    redraw("Done. Reboot recommended (press X).");
     return 0;
 }
 
-static int aio_pending(void) {
-    return access(PKG3_AIO, F_OK) == 0 || access(STRAT_AIO, F_OK) == 0;
-}
-
-static void write_startup_te(void) {
-    FILE *fp = fopen(STARTUP_TE, "w");
-    if (!fp) return;
-    fputs(
-        "#REQUIRE SD\n"
-        "#REQUIRE VER 4.0.0\n"
-        "#REQUIRE MINERVA\n"
-        "if (fsexists(\"sd:/atmosphere/package3.aio\")) {\n"
-        "  if (copyfile(\"sd:/atmosphere/package3.aio\", \"sd:/atmosphere/package3\")) {\n"
-        "    println(\"package3 apply failed\")\n"
-        "  } .else() {\n"
-        "    delfile(\"sd:/atmosphere/package3.aio\")\n"
-        "  }\n"
-        "}\n"
-        "if (fsexists(\"sd:/atmosphere/stratosphere.romfs.aio\")) {\n"
-        "  if (copyfile(\"sd:/atmosphere/stratosphere.romfs.aio\", \"sd:/atmosphere/stratosphere.romfs\")) {\n"
-        "    println(\"stratosphere apply failed\")\n"
-        "  } .else() {\n"
-        "    delfile(\"sd:/atmosphere/stratosphere.romfs.aio\")\n"
-        "  }\n"
-        "}\n"
-        "delfile(\"sd:/startup.te\")\n"
-        "if (fsexists(\"sd:/bootloader/update.bin\")) {\n"
-        "  payload(\"sd:/bootloader/update.bin\")\n"
-        "} .else() {\n"
-        "  if (fsexists(\"sd:/atmosphere/reboot_payload.bin\")) {\n"
-        "    payload(\"sd:/atmosphere/reboot_payload.bin\")\n"
-        "  }\n"
-        "}\n",
-        fp);
-    fclose(fp);
-}
-
-static int reboot_via_te(void) {
-    FILE *f = fopen(TE_PATH, "rb");
-    if (!f) {
-        snprintf(g_err, sizeof g_err, "missing %s", TE_PATH);
-        return -1;
-    }
-    static u8 payload[IRAM_PAYLOAD_MAX_SIZE] __attribute__((aligned(0x1000)));
-    memset(payload, 0, sizeof payload);
-    size_t n = fread(payload, 1, sizeof payload, f);
-    fclose(f);
-    if (n < 0x1000) {
-        snprintf(g_err, sizeof g_err, "TegraExplorer.bin too small");
-        return -1;
-    }
-    size_t send = n;
-    if (send < 0x24000) send = 0x24000;
-    if (send > sizeof payload) send = sizeof payload;
-    if (R_FAILED(spsmInitialize())) return -1;
-    Result rc = amsBpcInitialize();
-    if (R_SUCCEEDED(rc))
-        rc = amsBpcSetRebootPayload(payload, send);
-    if (R_SUCCEEDED(rc)) {
-        spsmShutdown(true);
-        return 0;
-    }
-    snprintf(g_err, sizeof g_err, "amsBpc reboot failed %x", rc);
-    return -1;
-}
-
 static void do_reboot(void) {
-    if (aio_pending()) {
-        write_startup_te();
-        if (reboot_via_te() == 0)
-            return;
-        redraw("Payload reboot failed; trying normal reboot.");
-    }
     if (R_SUCCEEDED(spsmInitialize())) {
         spsmShutdown(true);
     }
@@ -641,7 +445,6 @@ int main(int argc, char **argv) {
         if (k & HidNpadButton_Plus) break;
         if (k & HidNpadButton_Y) fetch_latest(&pad);
         if (k & HidNpadButton_A) do_update(&pad);
-        if (k & HidNpadButton_B) do_self_update(&pad);
         if (k & HidNpadButton_X) do_reboot();
         consoleUpdate(NULL);
     }

@@ -75,7 +75,8 @@ int main(void) {
     if (pack_unzip(zpath, out, unzip_nop, NULL, NULL, err, sizeof err) != 0) return fail(err);
 
     struct stat st;
-    if (stat("tests/out/atmosphere/package3", &st) != 0) return fail("extracted package3");
+    if (stat("tests/out/atmosphere/package3.aio", &st) != 0) return fail("extracted package3.aio");
+    if (stat("tests/out/atmosphere/package3", &st) == 0) return fail("must not write live package3");
     if (stat("tests/out/bootloader/hekate_ipl.ini", &st) != 0) return fail("extracted ini");
     if (stat("tests/evil.txt", &st) == 0) return fail("zip-slip leaked");
     if (stat("tests/out/Nintendo/save.bin", &st) == 0) return fail("Nintendo/ should be skipped");
@@ -104,18 +105,24 @@ int main(void) {
 
     {
         FILE *pre = fopen("tests/out/atmosphere/package3", "w");
-        if (!pre) return fail("seed overwrite");
+        if (!pre) return fail("seed live package3");
         fputs("OLD-PACKAGE3", pre);
         fclose(pre);
         if (pack_unzip(zpath, out, unzip_nop, NULL, NULL, err, sizeof err) != 0)
             return fail(err);
-        FILE *got = fopen("tests/out/atmosphere/package3", "r");
-        if (!got) return fail("overwrite dest missing");
+        FILE *live = fopen("tests/out/atmosphere/package3", "r");
+        if (!live) return fail("live package3 missing");
         char b[32] = {0};
-        if (!fgets(b, sizeof b, got)) { fclose(got); return fail("overwrite empty"); }
-        fclose(got);
-        if (strcmp(b, "package3-bytes") != 0) return fail("overwrite content");
-        printf("overwrite existing package3 ok\n");
+        if (!fgets(b, sizeof b, live)) { fclose(live); return fail("live empty"); }
+        fclose(live);
+        if (strcmp(b, "OLD-PACKAGE3") != 0) return fail("live package3 was overwritten");
+        FILE *aio = fopen("tests/out/atmosphere/package3.aio", "r");
+        if (!aio) return fail("aio missing");
+        memset(b, 0, sizeof b);
+        if (!fgets(b, sizeof b, aio)) { fclose(aio); return fail("aio empty"); }
+        fclose(aio);
+        if (strcmp(b, "package3-bytes") != 0) return fail("aio content");
+        printf("AMS core went to package3.aio; live package3 untouched\n");
     }
 
     char tag[64];
