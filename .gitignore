@@ -1,0 +1,11 @@
+NS SD Card/
+*.zip
+.github/workflow_keep_alive.txt
+pack-updater/build/
+pack-updater/*.nro
+pack-updater/*.nacp
+pack-updater/*.elf
+pack-updater/*.map
+pack-updater/tests/host_test
+pack-updater/tests/sample.zip
+pack-updater/tests/out/

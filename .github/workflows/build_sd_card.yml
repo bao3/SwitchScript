@@ -1,89 +1,118 @@
-name: Nintendo Switch SD Card Automated Builder
+# Nintendo Switch SD Card Automated Builder
 
 on:
   schedule:
-    # 每天北京时间凌晨 01:13 运行（对应 UTC 时间前一天下午 17:13）
-    # 采用 13分 错开国际整点排队高峰，大幅缩短 GitHub Actions 分配服务器的等待时间
+    # 每天北京时间凌晨 01:13（UTC 前一天 17:13）
     - cron: '13 17 * * *'
-  workflow_dispatch: # 开启手动触发通道，允许在 GitHub 网页端 Actions 页面一键点击运行
+  workflow_dispatch:
 
-# 显式声明全局安全上下文权限，赋予 Workflow 能够修改仓库代码（Push）以及创建 Release 的最高写权限
 permissions:
   contents: write
   actions: write
 
 jobs:
-  build-sd-layout:
+  build-nro:
     runs-on: ubuntu-latest
-
     steps:
-      # 第一步：检出仓库代码
+      - name: Checkout Repository Code
+        uses: actions/checkout@v5
+
+      - name: Build PackUpdater.nro
+        run: |
+          docker run --rm \
+            -v "$PWD:/src" \
+            -w /src/pack-updater \
+            devkitpro/devkita64:latest \
+            bash -lc 'source /opt/devkitpro/switchvars.sh && make -j"$(nproc)"'
+          test -f pack-updater/PackUpdater.nro
+
+      - name: Upload NRO artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pack-updater-nro
+          path: pack-updater/PackUpdater.nro
+          if-no-files-found: error
+
+  build-sd-layout:
+    needs: build-nro
+    runs-on: ubuntu-latest
+    steps:
       - name: Checkout Repository Code
         uses: actions/checkout@v5
         with:
-          persist-credentials: true # 保持认证凭证，供后续 Git Push 阶段使用
+          persist-credentials: true
 
-      # 第二步：初始化系统依赖环境
+      - name: Download PackUpdater.nro
+        uses: actions/download-artifact@v4
+        with:
+          name: pack-updater-nro
+          path: dist-nro
+
       - name: Initialize Environment Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y jq unzip curl zip
 
-      # 第三步：【新增】动态获取 Atmosphere 的最新版本号
-      # 使用 GITHUB_TOKEN 鉴权请求 API，防止触发 GitHub 的 Rate Limit（频率限制）
       - name: Fetch Atmosphere Version Tag
         id: ams_env
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          AMS_TAG=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" -H "User-Agent: bao3-SwitchScript" https://api.github.com/repos/Atmosphere-NX/Atmosphere/releases/latest | jq -r '.tag_name')
-          
-          # 容错处理：如果 API 请求异常，则使用当前日期作为保底版本号
-          if [ -z "$AMS_TAG" ] || [ "$AMS_TAG" == "null" ]; then
+          AMS_TAG=$(curl -fsSL \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "User-Agent: bao3-SwitchScript" \
+            https://api.github.com/repos/Atmosphere-NX/Atmosphere/releases/latest | jq -r '.tag_name')
+          if [ -z "$AMS_TAG" ] || [ "$AMS_TAG" = "null" ]; then
             AMS_TAG=$(date +'%Y%m%d')
           fi
-          
-          # 将版本号写入 GitHub Actions 的全局输出变量中
-          echo "version=${AMS_TAG}" >> $GITHUB_OUTPUT
-          echo "==> Successfully tracked Atmosphere Version: ${AMS_TAG}"
+          echo "version=${AMS_TAG}" >> "$GITHUB_OUTPUT"
+          echo "==> Atmosphere version: ${AMS_TAG}"
 
-      # 第四步：执行核心构建脚本
       - name: Execute Core Switch Script
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           chmod +x ./switchScript.sh
           ./switchScript.sh
+          test -f "./NS SD Card/atmosphere/package3"
 
-      # 第五步：【已修改】在云端根据大层版本号进行动态命名压缩
+      - name: Install PackUpdater into layout
+        run: |
+          mkdir -p "./NS SD Card/switch/PackUpdater"
+          cp dist-nro/PackUpdater.nro "./NS SD Card/switch/PackUpdater/PackUpdater.nro"
+          cp pack-updater/config.ini.example "./NS SD Card/switch/PackUpdater/config.ini"
+          printf '%s\n' "${{ steps.ams_env.outputs.version }}" > "./NS SD Card/switch/PackUpdater/installed.txt"
+
       - name: Compress SD Card Folder
         run: |
-          if [ -d "./NS SD Card" ]; then
-            cd "./NS SD Card"
-            # 引入动态变量，打包命名为如：NS-SD-Card-Atmosphere-1.11.1.zip
-            zip -r ../NS-SD-Card-Atmosphere-${{ steps.ams_env.outputs.version }}.zip ./*
-            cd ..
-            echo "==> Success: Folder compressed into NS-SD-Card-Atmosphere-${{ steps.ams_env.outputs.version }}.zip"
-          else
-            echo "Error: Target directory './NS SD Card' not found!"
+          VER="${{ steps.ams_env.outputs.version }}"
+          cd "./NS SD Card"
+          zip -r "../NS-SD-Card-Atmosphere-${VER}.zip" ./*
+          cd ..
+          SIZE=$(stat -c%s "NS-SD-Card-Atmosphere-${VER}.zip")
+          echo "==> zip bytes: ${SIZE}"
+          if [ "$SIZE" -lt 10000000 ]; then
+            echo "Refusing to publish zip smaller than 10MB (got ${SIZE})"
             exit 1
           fi
 
-      # 第六步：【已修改】自动创建/更新对应版本号的 GitHub Release 归档
       - name: Update GitHub Release
         uses: ncipollo/release-action@v1
         with:
-          artifacts: "NS-SD-Card-Atmosphere-${{ steps.ams_env.outputs.version }}.zip" 
-          tag: "${{ steps.ams_env.outputs.version }}" # 将 Tag 改为版本号（如 1.11.1），大层更新时会自动生成新 Releases 历史
+          artifacts: |
+            NS-SD-Card-Atmosphere-${{ steps.ams_env.outputs.version }}.zip
+            dist-nro/PackUpdater.nro
+          tag: "${{ steps.ams_env.outputs.version }}"
           name: "Nintendo Switch SD Card Build - Atmosphere ${{ steps.ams_env.outputs.version }}"
           body: |
-            Automated build generated on $(date -u +"%Y-%m-%d %H:%M:%S UTC").
-            Contains latest integration of Atmosphere ${{ steps.ams_env.outputs.version }}, Hekate, Sigpatches, and sys-modules.
-          allowUpdates: true                      # 如果同一版本重复运行，允许覆盖更新
-          removeArtifacts: false                  # 不移除历史版本的发布包
-          replacesArtifacts: true                 # 同版本重复构建时替换同名资产
-          makeLatest: true                        # 始终将最新的大层版本设为仓库的 "Latest" 标签
+            Automated SD pack (Atmosphere ${{ steps.ams_env.outputs.version }}).
+            On-device updater: hbmenu -> PackUpdater, or copy PackUpdater.nro to sdmc:/switch/PackUpdater/.
+          allowUpdates: true
+          removeArtifacts: false
+          replacesArtifacts: true
+          makeLatest: true
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      # 第七步：自动化“内核续命”防御机制
       - name: Automated Keep-Alive Self-Commit
         run: |
           date -u +"%Y-%m-%d %H:%M:%S UTC" > .github/workflow_keep_alive.txt
