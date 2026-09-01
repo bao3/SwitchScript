@@ -19,7 +19,7 @@ jobs:
     steps:
       # 第一步：检出仓库代码
       - name: Checkout Repository Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           persist-credentials: true # 保持认证凭证，供后续 Git Push 阶段使用
 
