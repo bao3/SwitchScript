@@ -411,6 +411,26 @@ write_text "$OUTPUT_DIR/atmosphere/config/stratosphere.ini" <<'ENDOFFILE'
 nogc = 0
 ENDOFFILE
 
+# PackUpdater.nro is produced by CI; pick it up when present for local builds too.
+PACK_UPDATER_NRO="${PACK_UPDATER_NRO:-$WORKDIR/pack-updater/PackUpdater.nro}"
+if [[ -f "$PACK_UPDATER_NRO" ]]; then
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    log "DRY-RUN: install PackUpdater.nro -> $OUTPUT_DIR/switch/PackUpdater/"
+  else
+    mkdir -p "$OUTPUT_DIR/switch/PackUpdater"
+    cp "$PACK_UPDATER_NRO" "$OUTPUT_DIR/switch/PackUpdater/PackUpdater.nro"
+    if [[ -f "$WORKDIR/pack-updater/config.ini.example" ]]; then
+      cp "$WORKDIR/pack-updater/config.ini.example" "$OUTPUT_DIR/switch/PackUpdater/config.ini"
+    fi
+    log "Installed PackUpdater.nro"
+  fi
+fi
+
+if [[ "$DRY_RUN" -eq 0 && ! -f "$OUTPUT_DIR/atmosphere/package3" ]]; then
+  warn "atmosphere/package3 missing — refusing to treat this as a valid pack"
+  exit 1
+fi
+
 log "Success. Layout is in '$OUTPUT_DIR'"
 if [[ "$DRY_RUN" -eq 1 ]]; then
   log "Dry-run only; no files were written."

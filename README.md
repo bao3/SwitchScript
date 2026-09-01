@@ -1,6 +1,7 @@
 # SwitchScript
 
-Build a Nintendo Switch SD-card layout: Hekate, Atmosphere, sys-patch, and common homebrew (including **CyberFoil**).
+Build a Nintendo Switch SD-card layout: Hekate, Atmosphere, sys-patch, homebrew
+(including CyberFoil), and **PackUpdater** (on-device zip update).
 
 ```bash
 ./switchScript.sh --dry-run          # resolve URLs, write nothing
@@ -15,8 +16,12 @@ Comment out any `*_URL` in `switchScript.sh` to skip that component.
 - Hekate + Nyx, Atmosphere + fusee.bin, sys-patch
 - MissionControl, EdiZon-SE, Sphaira, AIO Switch Updater, Ultrahand Overlay
 - CyberFoil (`switch/CyberFoil/`), DBI, JKSV, Akira, NX-Shell, MigDumpTool
+- PackUpdater (`switch/PackUpdater/`) — download the latest GitHub zip on the Switch and extract it to the SD root
 - `hekate_ipl.ini`, `exosphere.ini`, emuMMC DNS block, stratosphere `nogc=0`
 
-GitHub Actions builds a zip release daily. Set `GITHUB_TOKEN` locally to avoid API rate limits.
+GitHub Actions builds a zip release daily and compiles PackUpdater.nro.
+Set `GITHUB_TOKEN` locally to avoid API rate limits.
+
+On the Switch: hbmenu -> PackUpdater -> A to update. See `pack-updater/README.md`.
 
 Based on community CFW guides; not written or endorsed by those authors.

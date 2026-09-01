@@ -1,0 +1,10 @@
+# PackUpdater config (sdmc:/switch/PackUpdater/config.ini)
+[updater]
+repo = bao3/SwitchScript
+asset_prefix = NS-SD-Card-Atmosphere-
+extract_to = sdmc:/
+min_zip_mb = 10
+# If the Switch cannot reach GitHub, point at your LAN proxy:
+# proxy = http://192.168.50.10:7893
+# Optional GitHub token (public repo works without it):
+# token =
