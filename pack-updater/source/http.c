@@ -148,3 +148,77 @@ int http_get_file(const char *url, const char *dest,
     }
     return 0;
 }
+
+static size_t write_discard(char *ptr, size_t size, size_t nmemb, void *userdata) {
+    (void)ptr;
+    (void)userdata;
+    return size * nmemb;
+}
+
+int http_follow(const char *url, const char *proxy, const char *token,
+                http_pump_fn pump, void *ud,
+                char *effective, size_t effective_sz,
+                int64_t *content_length,
+                char *err, size_t err_sz) {
+    if (effective && effective_sz) effective[0] = 0;
+    if (content_length) *content_length = -1;
+    CURL *curl = curl_easy_init();
+    if (!curl) {
+        snprintf(err, err_sz, "curl_easy_init failed");
+        return -1;
+    }
+    PumpWrap wrap = {pump, ud};
+    struct curl_slist *hdrs = NULL;
+    apply_common(curl, url, proxy, token, &hdrs, pump ? &wrap : NULL);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_discard);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 45L);
+    CURLcode rc = curl_easy_perform(curl);
+    if (rc != CURLE_OK) {
+        snprintf(err, err_sz, "GET %s: %s", url, curl_easy_strerror(rc));
+        curl_easy_cleanup(curl);
+        curl_slist_free_all(hdrs);
+        return -1;
+    }
+    if (effective && effective_sz) {
+        char *fin = NULL;
+        curl_easy_getinfo(curl, CURLINFO_EFFECTIVE_URL, &fin);
+        if (fin) snprintf(effective, effective_sz, "%s", fin);
+    }
+    if (content_length) {
+        curl_off_t cl = -1;
+        curl_easy_getinfo(curl, CURLINFO_CONTENT_LENGTH_DOWNLOAD_T, &cl);
+        *content_length = (int64_t)cl;
+    }
+    curl_easy_cleanup(curl);
+    curl_slist_free_all(hdrs);
+    return 0;
+}
+
+int http_content_length(const char *url, const char *proxy, const char *token,
+                        int64_t *content_length, char *err, size_t err_sz) {
+    if (content_length) *content_length = -1;
+    CURL *curl = curl_easy_init();
+    if (!curl) {
+        snprintf(err, err_sz, "curl_easy_init failed");
+        return -1;
+    }
+    struct curl_slist *hdrs = NULL;
+    apply_common(curl, url, proxy, token, &hdrs, NULL);
+    curl_easy_setopt(curl, CURLOPT_NOBODY, 1L);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
+    CURLcode rc = curl_easy_perform(curl);
+    if (rc != CURLE_OK) {
+        snprintf(err, err_sz, "HEAD %s: %s", url, curl_easy_strerror(rc));
+        curl_easy_cleanup(curl);
+        curl_slist_free_all(hdrs);
+        return -1;
+    }
+    if (content_length) {
+        curl_off_t cl = -1;
+        curl_easy_getinfo(curl, CURLINFO_CONTENT_LENGTH_DOWNLOAD_T, &cl);
+        *content_length = (int64_t)cl;
+    }
+    curl_easy_cleanup(curl);
+    curl_slist_free_all(hdrs);
+    return 0;
+}

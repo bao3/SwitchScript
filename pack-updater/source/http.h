@@ -23,3 +23,14 @@ int http_get_file(const char *url, const char *dest,
                   const char *proxy, const char *token,
                   http_pump_fn pump, void *ud,
                   char *err, size_t err_sz);
+
+/* Follow redirects, discard body, return final URL (and optional Content-Length). */
+int http_follow(const char *url, const char *proxy, const char *token,
+                http_pump_fn pump, void *ud,
+                char *effective, size_t effective_sz,
+                int64_t *content_length,
+                char *err, size_t err_sz);
+
+/* HEAD (or GET-nobody) for Content-Length. content_length may be -1 if unknown. */
+int http_content_length(const char *url, const char *proxy, const char *token,
+                        int64_t *content_length, char *err, size_t err_sz);

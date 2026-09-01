@@ -78,6 +78,21 @@ int main(void) {
     if (stat("tests/evil.txt", &st) == 0) return fail("zip-slip leaked");
     if (stat("tests/out/Nintendo/save.bin", &st) == 0) return fail("Nintendo/ should be skipped");
     printf("unzip ok (zip-slip and Nintendo/ skipped)\n");
+
+    char tag[64];
+    if (gh_tag_from_effective_url(
+            "https://gh.heibang.club/https://github.com/bao3/SwitchScript/releases/tag/1.11.2",
+            tag, sizeof tag) != 0)
+        return fail("tag from gh proxy url");
+    if (strcmp(tag, "1.11.2") != 0) return fail("tag value");
+    if (gh_tag_from_effective_url("https://github.com/bao3/SwitchScript/releases/tag/1.11.2?foo=1",
+                                  tag, sizeof tag) != 0)
+        return fail("tag from github url");
+    if (strcmp(tag, "1.11.2") != 0) return fail("tag query strip");
+    if (gh_tag_from_effective_url("https://example.com/nope", tag, sizeof tag) == 0)
+        return fail("bad url should fail");
+    printf("tag parse ok\n");
+
     printf("ALL HOST TESTS PASSED\n");
     return 0;
 }

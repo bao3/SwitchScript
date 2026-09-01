@@ -16,7 +16,10 @@ and extract it onto `sdmc:/`.
 Tiny / empty releases are refused (must contain `atmosphere/package3` and
 be at least 10 MB). Config: `sdmc:/switch/PackUpdater/config.ini`.
 
-If GitHub is blocked on the console, set `proxy = http://IP:PORT` in that file.
+Default download path is the Cloudflare Worker
+`https://gh.heibang.club/https://github.com/...` (China-reachable). Clear
+`gh_proxy` to talk to GitHub directly. `proxy =` is an HTTP CONNECT proxy
+and is usually empty.
 
 ## Build
 

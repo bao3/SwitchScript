@@ -10,7 +10,7 @@
 #include "json.h"
 #include "unzip.h"
 
-#define VERSION "1.0.0"
+#define VERSION "1.1.0"
 #define WORK_DIR "sdmc:/switch/PackUpdater"
 #define ZIP_PATH WORK_DIR "/update.zip"
 #define INSTALLED_PATH WORK_DIR "/installed.txt"
@@ -18,12 +18,14 @@
 #define DEFAULT_REPO "bao3/SwitchScript"
 #define DEFAULT_PREFIX "NS-SD-Card-Atmosphere-"
 #define DEFAULT_EXTRACT "sdmc:/"
+#define DEFAULT_GH_PROXY "https://gh.heibang.club"
 #define REQUIRED_INNER "atmosphere/package3"
 
 typedef struct {
     char repo[128];
     char asset_prefix[128];
     char proxy[256];
+    char gh_proxy[256];
     char token[128];
     char extract_to[64];
     int min_zip_mb;
@@ -55,6 +57,7 @@ static void cfg_defaults(Config *c) {
     snprintf(c->repo, sizeof c->repo, "%s", DEFAULT_REPO);
     snprintf(c->asset_prefix, sizeof c->asset_prefix, "%s", DEFAULT_PREFIX);
     snprintf(c->extract_to, sizeof c->extract_to, "%s", DEFAULT_EXTRACT);
+    snprintf(c->gh_proxy, sizeof c->gh_proxy, "%s", DEFAULT_GH_PROXY);
     c->min_zip_mb = 10;
 }
 
@@ -68,6 +71,8 @@ static void write_default_config(void) {
         "asset_prefix = NS-SD-Card-Atmosphere-\n"
         "extract_to = sdmc:/\n"
         "min_zip_mb = 10\n"
+        "gh_proxy = https://gh.heibang.club\n"
+        "# HTTP CONNECT proxy (usually leave empty; gh_proxy is enough in CN):\n"
         "# proxy = http://192.168.50.10:7893\n"
         "# token =\n",
         fp);
@@ -94,6 +99,7 @@ static void load_config(void) {
         if (!strcmp(k, "repo")) snprintf(g_cfg.repo, sizeof g_cfg.repo, "%s", v);
         else if (!strcmp(k, "asset_prefix")) snprintf(g_cfg.asset_prefix, sizeof g_cfg.asset_prefix, "%s", v);
         else if (!strcmp(k, "proxy")) snprintf(g_cfg.proxy, sizeof g_cfg.proxy, "%s", v);
+        else if (!strcmp(k, "gh_proxy")) snprintf(g_cfg.gh_proxy, sizeof g_cfg.gh_proxy, "%s", v);
         else if (!strcmp(k, "token")) snprintf(g_cfg.token, sizeof g_cfg.token, "%s", v);
         else if (!strcmp(k, "extract_to")) snprintf(g_cfg.extract_to, sizeof g_cfg.extract_to, "%s", v);
         else if (!strcmp(k, "min_zip_mb")) g_cfg.min_zip_mb = atoi(v);
@@ -174,6 +180,7 @@ static void banner(const char *status) {
     printf(" PackUpdater %s\n", VERSION);
     printf("================================\n");
     printf("repo   : %s\n", g_cfg.repo);
+    printf("gh     : %s\n", g_cfg.gh_proxy[0] ? g_cfg.gh_proxy : "(direct)");
     printf("proxy  : %s\n", g_cfg.proxy[0] ? g_cfg.proxy : "(none)");
     printf("installed : %s\n", g_installed[0] ? g_installed : "(unknown)");
     if (g_have_asset) {
@@ -203,25 +210,70 @@ static void redraw(const char *status) {
     consoleUpdate(NULL);
 }
 
+static void via_gh(char *out, size_t n, const char *url) {
+    if (!g_cfg.gh_proxy[0]) {
+        snprintf(out, n, "%s", url);
+        return;
+    }
+    if (!strncmp(url, g_cfg.gh_proxy, strlen(g_cfg.gh_proxy))) {
+        snprintf(out, n, "%s", url);
+        return;
+    }
+    size_t bl = strlen(g_cfg.gh_proxy);
+    while (bl && g_cfg.gh_proxy[bl - 1] == '/') bl--;
+    snprintf(out, n, "%.*s/%s", (int)bl, g_cfg.gh_proxy, url);
+}
+
 static int fetch_latest(PadState *pad) {
     g_have_asset = 0;
     g_err[0] = 0;
-    char url[256];
-    snprintf(url, sizeof url, "https://api.github.com/repos/%s/releases/latest", g_cfg.repo);
-    redraw("Checking GitHub...");
-    Pump p = {.pad = pad, .label = "API", .abort = 0};
-    HttpMem mem = {0};
-    if (http_get_mem(url, g_cfg.proxy, g_cfg.token, pump_cb, &p, &mem, g_err, sizeof g_err) != 0) {
-        redraw("Check failed.");
-        return -1;
-    }
-    if (gh_parse_latest_zip(mem.data, g_cfg.asset_prefix, &g_asset, g_err, sizeof g_err) != 0) {
+    Pump p = {.pad = pad, .label = "GitHub", .abort = 0};
+    const char *tok = g_cfg.gh_proxy[0] ? NULL : g_cfg.token;
+
+    if (g_cfg.gh_proxy[0]) {
+        char src[256], url[768], final[768];
+        snprintf(src, sizeof src, "https://github.com/%s/releases/latest", g_cfg.repo);
+        via_gh(url, sizeof url, src);
+        redraw("Checking gh.heibang.club ...");
+        if (http_follow(url, g_cfg.proxy, tok, pump_cb, &p, final, sizeof final, NULL,
+                        g_err, sizeof g_err) != 0) {
+            redraw("Check failed.");
+            return -1;
+        }
+        if (gh_tag_from_effective_url(final, g_asset.tag, sizeof g_asset.tag) != 0) {
+            snprintf(g_err, sizeof g_err, "no /releases/tag/ in %s", final);
+            redraw("Parse failed.");
+            return -1;
+        }
+        snprintf(g_asset.name, sizeof g_asset.name, "%s%s.zip", g_cfg.asset_prefix, g_asset.tag);
+        snprintf(src, sizeof src, "https://github.com/%s/releases/download/%s/%s",
+                 g_cfg.repo, g_asset.tag, g_asset.name);
+        via_gh(g_asset.url, sizeof g_asset.url, src);
+        int64_t cl = -1;
+        char ignore[128];
+        if (http_content_length(g_asset.url, g_cfg.proxy, tok, &cl, ignore, sizeof ignore) == 0 && cl > 0)
+            g_asset.size = cl;
+        else
+            g_asset.size = 0;
+        g_have_asset = 1;
+    } else {
+        char url[256];
+        snprintf(url, sizeof url, "https://api.github.com/repos/%s/releases/latest", g_cfg.repo);
+        redraw("Checking GitHub API...");
+        HttpMem mem = {0};
+        if (http_get_mem(url, g_cfg.proxy, tok, pump_cb, &p, &mem, g_err, sizeof g_err) != 0) {
+            redraw("Check failed.");
+            return -1;
+        }
+        if (gh_parse_latest_zip(mem.data, g_cfg.asset_prefix, &g_asset, g_err, sizeof g_err) != 0) {
+            free(mem.data);
+            redraw("Parse failed.");
+            return -1;
+        }
         free(mem.data);
-        redraw("Parse failed.");
-        return -1;
+        g_have_asset = 1;
     }
-    free(mem.data);
-    g_have_asset = 1;
+
     if (g_installed[0] && strcmp(g_installed, g_asset.tag) == 0)
         redraw("Already up to date. A still re-applies.");
     else
@@ -254,7 +306,8 @@ static int do_update(PadState *pad) {
 
     Pump p = {.pad = pad, .label = "Downloading pack", .abort = 0};
     redraw("Downloading...");
-    if (http_get_file(g_asset.url, ZIP_PATH, g_cfg.proxy, g_cfg.token,
+    if (http_get_file(g_asset.url, ZIP_PATH, g_cfg.proxy,
+                      g_cfg.gh_proxy[0] ? NULL : g_cfg.token,
                       pump_cb, &p, g_err, sizeof g_err) != 0) {
         appletSetAutoSleepDisabled(false);
         redraw("Download failed.");

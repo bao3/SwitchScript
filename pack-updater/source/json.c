@@ -130,3 +130,17 @@ int gh_parse_latest_zip(const char *json, const char *asset_prefix,
     snprintf(err, err_sz, "no asset matching %s*.zip", asset_prefix);
     return -1;
 }
+
+int gh_tag_from_effective_url(const char *url, char *tag, size_t tag_sz) {
+    if (!url || !tag || tag_sz < 2) return -1;
+    const char *p = strstr(url, "/releases/tag/");
+    if (!p) return -1;
+    p += strlen("/releases/tag/");
+    size_t i = 0;
+    while (p[i] && p[i] != '/' && p[i] != '?' && p[i] != '#' && p[i] != '&' && i + 1 < tag_sz)
+        i++;
+    if (i == 0) return -1;
+    memcpy(tag, p, i);
+    tag[i] = 0;
+    return 0;
+}
