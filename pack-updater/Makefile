@@ -44,9 +44,9 @@ DATA		:=	data
 INCLUDES	:=	source include
 #ROMFS	:=	romfs
 
-APP_TITLE	:=	PackUpdater
+APP_TITLE	:=	整合包更新
 APP_AUTHOR	:=	bao3
-APP_VERSION	:=	1.5.1
+APP_VERSION	:=	1.6.0
 
 # miniz symbols must not clash with libz pulled in by libcurl
 DEFINES	+=	-DMINIZ_NO_ZLIB_COMPATIBLE_NAMES
@@ -66,7 +66,7 @@ CXXFLAGS	:= $(CFLAGS) -fno-rtti -fno-exceptions
 ASFLAGS	:=	-g $(ARCH)
 LDFLAGS	=	-specs=$(DEVKITPRO)/libnx/switch.specs -g $(ARCH) -Wl,-Map,$(notdir $*.map)
 
-LIBS	:= `curl-config --libs` -lnx
+LIBS	:= `curl-config --libs` -lm -lnx
 
 #---------------------------------------------------------------------------------
 # list of directories containing libraries, this must be the top level containing

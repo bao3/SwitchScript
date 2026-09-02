@@ -8,8 +8,8 @@ and extract it onto `sdmc:/`.
 1. Copy `PackUpdater.nro` to `sdmc:/switch/PackUpdater/`
    (the daily zip already includes this folder). First launch writes
    vendored `TegraExplorer.bin` next to the NRO if it is missing.
-2. Open it from hbmenu. It checks GitHub Releases for
-   `NS-SD-Card-Atmosphere-*.zip`.
+2. Open it from hbmenu (title: 整合包更新). The in-app UI is Simplified Chinese.
+   It checks GitHub Releases for `NS-SD-Card-Atmosphere-*.zip`.
 3. Press A to download and extract onto the SD root in one shot.
    `atmosphere/package3` and `stratosphere.romfs` are written as `.aio`
    sidecars (not live files). Press X: reboot into TegraExplorer, which
