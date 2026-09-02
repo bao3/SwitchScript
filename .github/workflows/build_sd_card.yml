@@ -78,9 +78,13 @@ jobs:
 
       - name: Install PackUpdater into layout
         run: |
-          mkdir -p "./NS SD Card/switch/PackUpdater"
+          mkdir -p "./NS SD Card/switch/PackUpdater" "./NS SD Card/bootloader/payloads"
           cp dist-nro/PackUpdater.nro "./NS SD Card/switch/PackUpdater/PackUpdater.nro"
           cp pack-updater/config.ini.example "./NS SD Card/switch/PackUpdater/config.ini"
+          cp pack-updater/data/TegraExplorer.bin "./NS SD Card/switch/PackUpdater/TegraExplorer.bin"
+          cp pack-updater/data/TegraExplorer.bin "./NS SD Card/bootloader/payloads/TegraExplorer.bin"
+          test -s "./NS SD Card/bootloader/payloads/Lockpick_RCM.bin"
+          test -s "./NS SD Card/switch/PackUpdater/TegraExplorer.bin"
           printf '%s\n' "${{ steps.ams_env.outputs.version }}" > "./NS SD Card/switch/PackUpdater/installed.txt"
 
       - name: Compress SD Card Folder

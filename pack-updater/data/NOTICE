@@ -1,6 +1,12 @@
 TegraExplorer.bin is the 4.2.0 release of
 https://github.com/suchmememanyskill/TegraExplorer
 (GPL-2.0, based on Lockpick_RCM / Hekate).
+Do not replace this with souldbminerr/TegraExplorer_update until that
+fork publishes a bin that still auto-runs sd:/startup.te and fits in
+amsBpc IRAM (0x2F000). PackUpdater reboot-to-payload is file-copy only.
+
+Lockpick_RCM.bin is fetched at pack-build time from
+https://github.com/impeeza/Lockpick_RCMDecScots (Hekate Payloads menu).
 
 ams_bpc.c / ams_bpc.h are from Atmosphère-NX (GPL-2.0),
 via aio-switch-updater's copies.

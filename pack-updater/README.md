@@ -6,7 +6,8 @@ and extract it onto `sdmc:/`.
 ## On the Switch
 
 1. Copy `PackUpdater.nro` to `sdmc:/switch/PackUpdater/`
-   (the daily zip already includes this folder).
+   (the daily zip already includes this folder). First launch writes
+   vendored `TegraExplorer.bin` next to the NRO if it is missing.
 2. Open it from hbmenu. It checks GitHub Releases for
    `NS-SD-Card-Atmosphere-*.zip`.
 3. Press A to download and extract onto the SD root in one shot.
@@ -14,6 +15,8 @@ and extract it onto `sdmc:/`.
    sidecars (not live files). Press X: reboot into TegraExplorer, which
    copies them into place before Atmosphere starts (AIO-style).
    Other files use tmp + pre-size + rename. `Nintendo/` is never touched.
+   The zip also puts `TegraExplorer.bin` and `Lockpick_RCM.bin` in
+   `bootloader/payloads/` for Hekate's Payloads menu.
 4. Optional: from the main screen, B writes only `PackUpdater.nro`.
 5. Press X to reboot when a full extract finishes.
 

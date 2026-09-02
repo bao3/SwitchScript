@@ -47,6 +47,7 @@ NX_SHELL_URL="https://github.com/Tproc-labs/NX-Shell-21.0.0/releases/latest"
 ULTRAHAND_OVERLAY_URL="https://github.com/ppkantorski/Ultrahand-Overlay/releases/latest"
 JKSV_URL="https://github.com/J-D-K/JKSV/releases/latest"
 CYBERFOIL_URL="https://github.com/luketanti/CyberFoil/releases/latest"
+LOCKPICK_URL="https://github.com/impeeza/Lockpick_RCMDecScots/releases/latest"
 MIG_DUMP_PAGE_URL="https://migflash.com/downloads/"
 
 # LAN AeroFoil shop baked into CyberFoil on the SD pack
@@ -247,6 +248,7 @@ SPHAIRA_ZIP="$WORKDIR/sphaira.zip"
 AIO_ZIP="$WORKDIR/aio-switch-updater.zip"
 ULTRA_ZIP="$WORKDIR/sdout.zip"
 CYBER_ZIP="$WORKDIR/cyberfoil.zip"
+LOCKPICK_BIN="$WORKDIR/Lockpick_RCM.bin"
 
 if [[ "$DRY_RUN" -eq 0 ]]; then
   mkdir -p "$OUTPUT_DIR"/{switch/DBI,switch/MigDumpTool,config/sys-patch,config/ftpsrv,atmosphere,bootloader/ini}
@@ -268,6 +270,7 @@ opt_fetch "$AKIRA_URL" "$OUTPUT_DIR/switch/akira.nro" ".nro"
 opt_fetch "$DBI_URL" "$OUTPUT_DIR/switch/DBI/DBI.nro" ".nro"
 opt_fetch "$NX_SHELL_URL" "$OUTPUT_DIR/switch/NX-Shell.nro" ".nro"
 opt_fetch "$JKSV_URL" "$OUTPUT_DIR/switch/JKSV.nro" ".nro"
+must_fetch "$LOCKPICK_URL" "$LOCKPICK_BIN" "Lockpick_RCM.bin"
 
 if [[ -n "${MIG_DUMP_PAGE_URL:-}" ]]; then
   if [[ "$DRY_RUN" -eq 1 ]]; then
@@ -316,6 +319,15 @@ elif [[ -f "$OUTPUT_DIR/fusee.bin" ]]; then
   mv "$OUTPUT_DIR/fusee.bin" "$OUTPUT_DIR/bootloader/payloads/"
 else
   warn "fusee.bin not found"
+fi
+# Hekate Payloads menu. Not a hekate_ipl boot entry.
+if [[ "$DRY_RUN" -eq 1 ]]; then
+  log "DRY-RUN: install Lockpick_RCM.bin -> bootloader/payloads/"
+elif [[ -f "$LOCKPICK_BIN" ]]; then
+  cp "$LOCKPICK_BIN" "$OUTPUT_DIR/bootloader/payloads/Lockpick_RCM.bin"
+  log "Installed Lockpick_RCM.bin"
+else
+  warn "Lockpick_RCM.bin not found"
 fi
 
 # ---- config files ----
@@ -465,6 +477,22 @@ write_text "$OUTPUT_DIR/switch/CyberFoil/config.json" <<EOF
 }
 EOF
 
+# TegraExplorer 4.2.0 (official). PackUpdater reboot-to-payload reads
+# switch/PackUpdater/TegraExplorer.bin; Hekate Payloads menu uses the copy
+# under bootloader/payloads/. souldbminerr/TegraExplorer_update is a 4.2.1
+# BDK bump with no release binary — do not swap this path onto it.
+TE_SRC="$WORKDIR/pack-updater/data/TegraExplorer.bin"
+if [[ "$DRY_RUN" -eq 1 ]]; then
+  log "DRY-RUN: install TegraExplorer.bin -> switch/PackUpdater/ and bootloader/payloads/"
+elif [[ -f "$TE_SRC" ]]; then
+  mkdir -p "$OUTPUT_DIR/switch/PackUpdater" "$OUTPUT_DIR/bootloader/payloads"
+  cp "$TE_SRC" "$OUTPUT_DIR/switch/PackUpdater/TegraExplorer.bin"
+  cp "$TE_SRC" "$OUTPUT_DIR/bootloader/payloads/TegraExplorer.bin"
+  log "Installed TegraExplorer.bin"
+else
+  warn "TegraExplorer.bin missing at $TE_SRC"
+fi
+
 # PackUpdater.nro is produced by CI; pick it up when present for local builds too.
 PACK_UPDATER_NRO="${PACK_UPDATER_NRO:-$WORKDIR/pack-updater/PackUpdater.nro}"
 if [[ -f "$PACK_UPDATER_NRO" ]]; then
@@ -475,9 +503,6 @@ if [[ -f "$PACK_UPDATER_NRO" ]]; then
     cp "$PACK_UPDATER_NRO" "$OUTPUT_DIR/switch/PackUpdater/PackUpdater.nro"
     if [[ -f "$WORKDIR/pack-updater/config.ini.example" ]]; then
       cp "$WORKDIR/pack-updater/config.ini.example" "$OUTPUT_DIR/switch/PackUpdater/config.ini"
-    fi
-    if [[ -f "$WORKDIR/pack-updater/data/TegraExplorer.bin" ]]; then
-      cp "$WORKDIR/pack-updater/data/TegraExplorer.bin" "$OUTPUT_DIR/switch/PackUpdater/TegraExplorer.bin"
     fi
     log "Installed PackUpdater.nro"
   fi

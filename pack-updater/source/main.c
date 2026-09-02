@@ -10,8 +10,9 @@
 #include "http.h"
 #include "json.h"
 #include "unzip.h"
+#include "TegraExplorer_bin.h"
 
-#define VERSION "1.5.0"
+#define VERSION "1.5.1"
 #define WORK_DIR "sdmc:/switch/PackUpdater"
 #define ZIP_PATH WORK_DIR "/update.zip"
 #define INSTALLED_PATH WORK_DIR "/installed.txt"
@@ -58,6 +59,7 @@ static GhAsset g_asset;
 static int g_have_asset;
 
 static void write_startup_te(void);
+static void ensure_te_on_sd(void);
 
 static void trim(char *s) {
     char *a = s;
@@ -538,6 +540,17 @@ static int aio_pending(void) {
     return access(PKG3_AIO, F_OK) == 0 || access(STRAT_AIO, F_OK) == 0;
 }
 
+static void ensure_te_on_sd(void) {
+    struct stat st;
+    if (stat(TE_PATH, &st) == 0 && st.st_size >= 0x1000)
+        return;
+    FILE *f = fopen(TE_PATH, "wb");
+    if (!f)
+        return;
+    fwrite(TegraExplorer_bin, 1, TegraExplorer_bin_size, f);
+    fclose(f);
+}
+
 static void write_startup_te(void) {
     FILE *fp = fopen(STARTUP_TE, "w");
     if (!fp) return;
@@ -623,6 +636,7 @@ int main(int argc, char **argv) {
 
     mkdir("sdmc:/switch", 0777);
     mkdir(WORK_DIR, 0777);
+    ensure_te_on_sd();
     load_config();
     load_installed();
 
