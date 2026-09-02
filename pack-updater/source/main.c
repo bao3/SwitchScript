@@ -13,7 +13,8 @@
 #include "ui.h"
 #include "TegraExplorer_bin.h"
 
-#define VERSION "1.6.0"
+#define VERSION "1.6.1"
+#define EXTRACT_DONE_MSG "解压完成。请按 X 重启，然后在 payload 中选择 Tegra Explorer。"
 #define COL_BG    ui_rgba(16, 18, 24, 255)
 #define COL_TITLE ui_rgba(232, 197, 71, 255)
 #define COL_TEXT  ui_rgba(236, 236, 240, 255)
@@ -216,6 +217,18 @@ static int unzip_progress(int i, int n, const char *name, void *ud) {
     return 0;
 }
 
+static void draw_extract_done_status(int y)
+{
+    int x = UI_X;
+    x = ui_text(x, y, UI_SZ, COL_WARN, "解压完成。请按 ");
+    x = ui_text(x, y, UI_SZ, COL_ERR, "X");
+    x = ui_text(x, y, UI_SZ, COL_WARN, " 重启，然后在 ");
+    x = ui_text(x, y, UI_SZ, COL_ERR, "payload");
+    x = ui_text(x, y, UI_SZ, COL_WARN, " 中选择 ");
+    x = ui_text(x, y, UI_SZ, COL_ERR, "Tegra Explorer");
+    ui_text(x, y, UI_SZ, COL_WARN, "。");
+}
+
 static void banner(const char *status) {
     int y = 28;
     ui_text(UI_X, y, UI_TITLE_SZ, COL_TITLE, "整合包更新  PackUpdater " VERSION);
@@ -245,7 +258,11 @@ static void banner(const char *status) {
     }
     ui_text(UI_X, y, UI_SZ, COL_DIM, "--------------------------------"); y += UI_LH;
     if (status && status[0]) {
-        ui_text(UI_X, y, UI_SZ, COL_WARN, status); y += UI_LH;
+        if (strcmp(status, EXTRACT_DONE_MSG) == 0)
+            draw_extract_done_status(y);
+        else
+            ui_text(UI_X, y, UI_SZ, COL_WARN, status);
+        y += UI_LH;
     }
     if (g_err[0]) {
         snprintf(line, sizeof line, "错误: %s", g_err);
@@ -570,12 +587,9 @@ static int do_update(PadState *pad) {
     remove(ZIP_PATH);
     appletSetAutoSleepDisabled(false);
     g_err[0] = 0;
-    if (access(PKG3_AIO, F_OK) == 0 || access(STRAT_AIO, F_OK) == 0) {
+    if (access(PKG3_AIO, F_OK) == 0 || access(STRAT_AIO, F_OK) == 0)
         write_startup_te();
-        redraw("完成。请按 X 重启以写入 package3。");
-    } else {
-        redraw("完成。建议重启（按 X）。");
-    }
+    redraw(EXTRACT_DONE_MSG);
     return 0;
 }
 

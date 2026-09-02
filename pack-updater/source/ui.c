@@ -218,10 +218,10 @@ void ui_begin(uint32_t bg)
     }
 }
 
-void ui_text(int x, int y, float size, uint32_t rgba, const char *utf8)
+int ui_text(int x, int y, float size, uint32_t rgba, const char *utf8)
 {
     if (!g_frame || !utf8)
-        return;
+        return x;
     int pen_x = x;
     int baseline = y + (int)(size * 0.82f);
     const char *p = utf8;
@@ -274,6 +274,7 @@ void ui_text(int x, int y, float size, uint32_t rgba, const char *utf8)
         }
         pen_x += g->adv;
     }
+    return pen_x;
 }
 
 void ui_end(void)

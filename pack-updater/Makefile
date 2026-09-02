@@ -46,7 +46,7 @@ INCLUDES	:=	source include
 
 APP_TITLE	:=	整合包更新
 APP_AUTHOR	:=	bao3
-APP_VERSION	:=	1.6.0
+APP_VERSION	:=	1.6.1
 
 # miniz symbols must not clash with libz pulled in by libcurl
 DEFINES	+=	-DMINIZ_NO_ZLIB_COMPATIBLE_NAMES

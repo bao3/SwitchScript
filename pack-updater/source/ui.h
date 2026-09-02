@@ -6,7 +6,8 @@ int ui_init(void);
 void ui_exit(void);
 
 void ui_begin(uint32_t bg);
-void ui_text(int x, int y, float size, uint32_t rgba, const char *utf8);
+/* Returns x after the last glyph so callers can chain colors on one line. */
+int ui_text(int x, int y, float size, uint32_t rgba, const char *utf8);
 void ui_end(void);
 void ui_idle(void);
 
