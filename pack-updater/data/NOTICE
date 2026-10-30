@@ -7,6 +7,9 @@ amsBpc IRAM (0x2F000). PackUpdater reboot-to-payload is file-copy only.
 
 Lockpick_RCM.bin is fetched at pack-build time from
 https://github.com/impeeza/Lockpick_RCMDecScots (Hekate Payloads menu).
+Releases may attach the raw payload or only a zip (plain or *_Hekate.zip).
+The pack script accepts either and ignores Lockpick_RCM_unc.bin, which is
+the pre-loader build and not a Hekate payload.
 
 ams_bpc.c / ams_bpc.h are from Atmosphère-NX (GPL-2.0),
 via aio-switch-updater's copies.
