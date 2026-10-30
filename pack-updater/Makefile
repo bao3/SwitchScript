@@ -51,6 +51,28 @@ APP_VERSION	:=	1.6.1
 # miniz symbols must not clash with libz pulled in by libcurl
 DEFINES	+=	-DMINIZ_NO_ZLIB_COMPATIBLE_NAMES
 
+# Optional GitHub URL prefix. Unset or blank => main.c's empty default
+# (direct GitHub). GH_PROXY wins; DEFAULT_GH_PROXY is the fallback.
+# Appended as a shell-quoted -DDEFAULT_GH_PROXY=\"...\" so the macro is a
+# C string literal.
+_sq = '$(subst ','"'"',$(1))'
+_PACK_GH_PROXY := $(value GH_PROXY)
+ifeq ($(strip $(_PACK_GH_PROXY)),)
+_PACK_GH_PROXY := $(value DEFAULT_GH_PROXY)
+endif
+ifneq ($(strip $(_PACK_GH_PROXY)),)
+_PACK_GH_PROXY_DEFINE := $(shell \
+	v=$(call _sq,$(value _PACK_GH_PROXY)); \
+	esc=$$(printf '%s' "$$v" | sed 's/\\/\\\\/g; s/"/\\"/g'); \
+	arg="-DDEFAULT_GH_PROXY=\"$$esc\""; \
+	quoted=$$(printf '%s' "$$arg" | sed "s/'/'\\\\''/g"); \
+	printf "'%s'" "$$quoted")
+ifeq ($(strip $(_PACK_GH_PROXY_DEFINE)),)
+$(error failed to encode GH_PROXY into -DDEFAULT_GH_PROXY)
+endif
+DEFINES	+=	$(_PACK_GH_PROXY_DEFINE)
+endif
+
 #---------------------------------------------------------------------------------
 # options for code generation
 #---------------------------------------------------------------------------------

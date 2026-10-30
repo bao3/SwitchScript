@@ -6,8 +6,11 @@ extract_to = sdmc:/
 min_zip_mb = 10
 min_battery_pct = 20
 min_free_mb = 512
-# Cloudflare Worker GitHub file proxy (default). Empty = talk to github.com directly.
-gh_proxy = https://gh.heibang.club
-# HTTP CONNECT proxy — usually leave empty; Switch in CN should use gh_proxy.
+# Optional GitHub URL prefix. Leave this key unset to keep the build default
+# (direct github.com, or a prefix injected when the release NRO was built).
+# Set it empty to force a direct connection. Users in CN can put their own
+# proxy URL here.
+# gh_proxy =
+# HTTP CONNECT proxy — usually leave empty.
 # proxy = http://192.168.50.10:7893
 # token =
