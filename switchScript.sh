@@ -47,6 +47,9 @@ NX_SHELL_URL="https://github.com/Tproc-labs/NX-Shell-21.0.0/releases/latest"
 ULTRAHAND_OVERLAY_URL="https://github.com/ppkantorski/Ultrahand-Overlay/releases/latest"
 JKSV_URL="https://github.com/J-D-K/JKSV/releases/latest"
 CYBERFOIL_URL="https://github.com/luketanti/CyberFoil/releases/latest"
+# impeeza/Lockpick_RCMDecScots. v2.0.1+ dropped the raw Lockpick_RCM.bin
+# asset and ships Lockpick_RCM-<ver>.zip plus a *_Hekate.zip. fetch_lockpick
+# accepts either shape and skips Lockpick_RCM_unc.bin (pre-loader build).
 LOCKPICK_URL="https://github.com/impeeza/Lockpick_RCMDecScots/releases/latest"
 MIG_DUMP_PAGE_URL="https://migflash.com/downloads/"
 
@@ -174,6 +177,135 @@ fetch_github_asset() {
 must_fetch() { fetch_github_asset "$@" || { warn "required download failed: $2"; exit 1; }; }
 opt_fetch()  { fetch_github_asset "$@" || warn "optional download skipped: $2"; }
 
+# Latest Lockpick releases do not always attach a raw Lockpick_RCM.bin.
+# Print candidate browser_download_url values, best first:
+#   1. exact Lockpick_RCM.bin
+#   2. any other Lockpick *.bin except the *_unc* pre-loader build
+#   3. a Lockpick zip whose name contains Hekate
+#   4. any other Lockpick *.zip except an unc package
+pick_lockpick_asset_urls() {
+  jq -r '
+    def unc: test("(^|[_-])unc([_.-]|$)");
+    [
+      (.assets // []) | to_entries[]
+      | {
+          url: .value.browser_download_url,
+          name: (.value.name // "" | ascii_downcase),
+          idx: .key
+        }
+      | select(.url != null and .url != "")
+      | .score = (
+          if .name == "lockpick_rcm.bin" then 100
+          elif ((.name | endswith(".bin")) and (.name | contains("lockpick")) and (.name | unc | not)) then 90
+          elif ((.name | endswith(".zip")) and (.name | contains("lockpick")) and (.name | contains("hekate"))) then 80
+          elif ((.name | endswith(".zip")) and (.name | contains("lockpick")) and (.name | unc | not)) then 60
+          else 0
+          end
+        )
+    ]
+    | map(select(.score > 0))
+    | sort_by(-.score, .idx)
+    | .[].url
+  '
+}
+
+# Write the first zip member whose final path segment matches want.
+extract_zip_basename() {
+  local zip=$1
+  local dest=$2
+  local want=$3
+  local want_lc member
+  want_lc=$(printf '%s' "$want" | tr '[:upper:]' '[:lower:]')
+  member=$(unzip -Z1 -- "$zip" 2>/dev/null | awk -v want="$want_lc" '
+    {
+      line = $0
+      sub(/\r$/, "", line)
+      base = line
+      sub(/.*[\/\\]/, "", base)
+      if (tolower(base) == want) {
+        print line
+        exit
+      }
+    }
+  ') || true
+  [[ -n "$member" ]] || return 1
+  mkdir -p "$(dirname "$dest")"
+  if ! unzip -p -- "$zip" "$member" > "$dest"; then
+    rm -f "$dest"
+    return 1
+  fi
+  [[ -s "$dest" ]] || { rm -f "$dest"; return 1; }
+}
+
+# Download Lockpick_RCM.bin from a /releases/latest URL.
+# Tries each candidate from pick_lockpick_asset_urls until one yields the
+# wrapped payload. Zips are extracted; Lockpick_RCM_unc.bin is never used.
+fetch_lockpick() {
+  local url=${1:-}
+  local dest=$2
+  [[ -n "$url" ]] || return 0
+  local repo api json list asset name lname scratch zip
+  repo=$(github_repo_from_url "$url")
+  api="https://api.github.com/repos/${repo}/releases/latest"
+  json=$(curl_gh -fsSL --retry 2 --retry-delay 1 --retry-all-errors "$api") || {
+    warn "Failed to resolve Lockpick release for $url"
+    return 1
+  }
+  list=$(printf '%s\n' "$json" | pick_lockpick_asset_urls) || {
+    warn "Failed to parse Lockpick release assets for $url"
+    return 1
+  }
+  if [[ -z "$list" ]]; then
+    warn "No Lockpick_RCM payload asset for $url"
+    warn "Release assets:"
+    printf '%s\n' "$json" | jq -r '.assets[]?.name' | while IFS= read -r name; do
+      [[ -n "$name" ]] || continue
+      warn "  $name"
+    done
+    return 1
+  fi
+  while IFS= read -r asset; do
+    [[ -n "$asset" ]] || continue
+    name=$(basename "${asset%%\?*}")
+    lname=$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]')
+    log "Lockpick release asset: $name"
+    if [[ "$DRY_RUN" -eq 1 ]]; then
+      if [[ "$lname" == *.zip ]]; then
+        log "DRY-RUN: download $name <- $asset; extract Lockpick_RCM.bin -> $(basename "$dest")"
+      else
+        log "DRY-RUN: download $(basename "$dest") <- $asset"
+      fi
+      return 0
+    fi
+    if [[ "$lname" == *.zip ]]; then
+      scratch=$(mktemp -d)
+      # Keep the release filename so the download log names the asset, not a generic zip.
+      zip="$scratch/$(printf '%s' "$name" | tr -c 'A-Za-z0-9._-' '_')"
+      if ! download_file "$asset" "$zip"; then
+        warn "Lockpick candidate failed: $name"
+        rm -rf "$scratch"
+        continue
+      fi
+      if extract_zip_basename "$zip" "$dest" "Lockpick_RCM.bin"; then
+        rm -rf "$scratch"
+        log "Extracted Lockpick_RCM.bin"
+        return 0
+      fi
+      warn "Lockpick archive $name has no Lockpick_RCM.bin member"
+      rm -rf "$scratch"
+      rm -f "$dest"
+      continue
+    fi
+    if download_file "$asset" "$dest"; then
+      return 0
+    fi
+    warn "Lockpick candidate failed: $name"
+    rm -f "$dest"
+  done <<< "$list"
+  warn "No usable Lockpick_RCM.bin in $url"
+  return 1
+}
+
 unzip_into() {
   local zip=$1
   local dest=$2
@@ -225,6 +357,11 @@ write_text() {
 }
 
 # -------------------------------------------
+# Tests source this file with SWITCHSCRIPT_SOURCE_ONLY=1 and stop here.
+if [[ "${SWITCHSCRIPT_SOURCE_ONLY:-}" == "1" ]]; then
+  return 0
+fi
+
 log "SwitchScript  output=$OUTPUT_DIR  dry_run=$DRY_RUN  clean=$CLEAN"
 if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
   if [[ -n "${GITHUB_TOKEN:-}" ]]; then
@@ -270,7 +407,10 @@ opt_fetch "$AKIRA_URL" "$OUTPUT_DIR/switch/akira.nro" ".nro"
 opt_fetch "$DBI_URL" "$OUTPUT_DIR/switch/DBI/DBI.nro" ".nro"
 opt_fetch "$NX_SHELL_URL" "$OUTPUT_DIR/switch/NX-Shell.nro" ".nro"
 opt_fetch "$JKSV_URL" "$OUTPUT_DIR/switch/JKSV.nro" ".nro"
-must_fetch "$LOCKPICK_URL" "$LOCKPICK_BIN" "Lockpick_RCM.bin"
+fetch_lockpick "$LOCKPICK_URL" "$LOCKPICK_BIN" || {
+  warn "required download failed: $LOCKPICK_BIN"
+  exit 1
+}
 
 if [[ -n "${MIG_DUMP_PAGE_URL:-}" ]]; then
   if [[ "$DRY_RUN" -eq 1 ]]; then

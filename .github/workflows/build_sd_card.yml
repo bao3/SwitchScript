@@ -53,6 +53,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y jq unzip curl zip
 
+      - name: Test Lockpick asset matching
+        run: bash tests/lockpick_asset_test.sh
+
       - name: Fetch Atmosphere Version Tag
         id: ams_env
         env:
