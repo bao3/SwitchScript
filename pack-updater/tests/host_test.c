@@ -127,7 +127,7 @@ int main(void) {
 
     char tag[64];
     if (gh_tag_from_effective_url(
-            "https://gh.heibang.club/https://github.com/bao3/SwitchScript/releases/tag/1.11.2",
+            "https://gh-proxy.example/https://github.com/bao3/SwitchScript/releases/tag/1.11.2",
             tag, sizeof tag) != 0)
         return fail("tag from gh proxy url");
     if (strcmp(tag, "1.11.2") != 0) return fail("tag value");

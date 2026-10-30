@@ -34,7 +34,11 @@
 #define DEFAULT_REPO "bao3/SwitchScript"
 #define DEFAULT_PREFIX "NS-SD-Card-Atmosphere-"
 #define DEFAULT_EXTRACT "sdmc:/"
-#define DEFAULT_GH_PROXY "https://gh.heibang.club"
+/* URL prefix for GitHub downloads. Empty means direct github.com.
+ * CI can pass -DDEFAULT_GH_PROXY=\"https://...\" (see the Makefile). */
+#ifndef DEFAULT_GH_PROXY
+#define DEFAULT_GH_PROXY ""
+#endif
 #define REQUIRED_INNER "atmosphere/package3"
 #define SELF_INNER "switch/PackUpdater/PackUpdater.nro"
 #define MIN_BATTERY_PCT 20
@@ -102,7 +106,7 @@ static void cfg_defaults(Config *c) {
 static void write_default_config(void) {
     FILE *fp = fopen(CONFIG_PATH, "w");
     if (!fp) return;
-    fputs(
+    fprintf(fp,
         "# PackUpdater config\n"
         "[updater]\n"
         "repo = bao3/SwitchScript\n"
@@ -111,11 +115,13 @@ static void write_default_config(void) {
         "min_zip_mb = 10\n"
         "min_battery_pct = 20\n"
         "min_free_mb = 512\n"
-        "gh_proxy = https://gh.heibang.club\n"
-        "# HTTP CONNECT proxy (usually leave empty; gh_proxy is enough in CN):\n"
+        "# Optional GitHub URL prefix. Empty = direct github.com.\n"
+        "# Users in CN can set their own proxy URL.\n"
+        "gh_proxy = %s\n"
+        "# HTTP CONNECT proxy (usually leave empty):\n"
         "# proxy = http://192.168.50.10:7893\n"
         "# token =\n",
-        fp);
+        DEFAULT_GH_PROXY);
     fclose(fp);
 }
 

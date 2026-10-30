@@ -23,10 +23,12 @@ and extract it onto `sdmc:/`.
 Tiny / empty releases are refused (must contain `atmosphere/package3` and
 be at least 10 MB). Config: `sdmc:/switch/PackUpdater/config.ini`.
 
-Default download path is the Cloudflare Worker
-`https://gh.heibang.club/https://github.com/...` (China-reachable). Clear
-`gh_proxy` to talk to GitHub directly. `proxy =` is an HTTP CONNECT proxy
-and is usually empty.
+`gh_proxy` in `config.ini` is an optional URL prefix for GitHub downloads.
+Leave the key unset to keep the build default: a source build talks to
+GitHub directly, and a release `.nro` may embed a prefix injected at CI
+time (`GH_PROXY`) that is not stored in this repo. Set `gh_proxy` empty to
+force a direct connection. Users in CN can put their own proxy URL there.
+`proxy =` is an HTTP CONNECT proxy and is usually empty.
 
 ## Build
 
@@ -34,8 +36,12 @@ Needs [devkitPro](https://devkitpro.org/) `switch-dev` + `switch-curl` (the
 `devkitpro/devkita64` Docker image has both).
 
 ```
-docker run --rm -v "$PWD:/src" -w /src/pack-updater devkitpro/devkita64:latest make
+docker run --rm -e GH_PROXY -v "$PWD:/src" -w /src/pack-updater \
+  devkitpro/devkita64:latest make
 ```
+
+`GH_PROXY` is optional. When set (environment or `make GH_PROXY=https://gh-proxy.example`),
+it is compiled in as the default `gh_proxy`. Unset, the default stays empty.
 
 Host tests (no toolchain):
 
